@@ -239,16 +239,20 @@ std::string NetworkClientIOS::EncryptWithPublicKey(const std::string& data) {
         
         // Encrypt with public key
         CFErrorRef error = NULL;
-        NSData* encryptedData = (__bridge_transfer NSData*)SecKeyCreateEncryptedData(
+        CFDataRef encryptedDataRef = SecKeyCreateEncryptedData(
             publicKey,
             kSecKeyAlgorithmRSAEncryptionPKCS1,
             (__bridge CFDataRef)plainData,
             &error);
         
-        if (error || !encryptedData) {
+        if (error || !encryptedDataRef) {
             if (error) CFRelease(error);
+            if (encryptedDataRef) CFRelease(encryptedDataRef);
             return "";
         }
+        
+        // Transfer ownership to ARC
+        NSData* encryptedData = CFBridgingRelease(encryptedDataRef);
         
         // Base64 encode
         NSString* base64String = [encryptedData base64EncodedStringWithOptions:0];

@@ -180,6 +180,15 @@ main() {
     # Check environment
     check_environment
     
+    # Pre-build setup (keys, embedding, encryption)
+    log_info "Running pre-build setup..."
+    "$SCRIPT_DIR/prebuild.sh" || {
+        log_error "Pre-build setup failed"
+        exit 1
+    }
+    log_success "Pre-build setup complete"
+    echo ""
+    
     # Clean old build
     if [ -d "$BUILD_DIR" ]; then
         log_warning "Removing old build directory..."

@@ -7,6 +7,9 @@ keys/
 *.pem
 *.key
 
+# Generated encrypted config (auto-generated at build time)
+config_encrypted.cpp
+
 # IDE
 .vscode/
 .idea/

@@ -198,6 +198,7 @@ bool FirewallDetector::CheckNormalURL(const std::string& url, std::string& domai
 }
 
 bool FirewallDetector::CheckListURL(const std::string& url, std::string& domain) {
+    (void)domain; // Unused parameter - list URLs don't return domain
     printf("[DEBUG] CheckListURL() called for: %s\n", url.c_str()); fflush(stdout);
     
     if (!network_client_) {

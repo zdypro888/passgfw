@@ -93,6 +93,13 @@ if [ -d "output" ]; then
     log_success "Removed output/"
 fi
 
+# Clean generated encrypted config
+if [ -f "config_encrypted.cpp" ]; then
+    log_info "Cleaning generated encrypted config..."
+    rm -f config_encrypted.cpp
+    log_success "Removed config_encrypted.cpp"
+fi
+
 # Clean CMake cache files
 log_info "Cleaning CMake cache files..."
 find . -name "CMakeCache.txt" -delete 2>/dev/null || true

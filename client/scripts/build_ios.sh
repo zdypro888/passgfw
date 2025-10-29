@@ -105,6 +105,10 @@ configure_build() {
     
     cd "$PROJECT_ROOT"
     
+    # Clean extended attributes from entire project BEFORE building
+    log_info "Cleaning extended attributes from project..."
+    xattr -cr . 2>/dev/null || true
+    
     # Clean old build directory
     if [ -d "$BUILD_DIR" ]; then
         log_warning "Removing old build directory..."
@@ -116,11 +120,12 @@ configure_build() {
     cd "$BUILD_DIR"
     
     # Configure with CMake
+    # Note: CMAKE_BUILD_TYPE is not used with Xcode generator
+    # Build type is controlled by xcodebuild -configuration flag
     cmake -G Xcode \
         -DCMAKE_SYSTEM_NAME=iOS \
         -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
         -DCMAKE_OSX_ARCHITECTURES="arm64;arm64e" \
-        -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO \
         .. || {
         log_error "CMake configuration failed"
@@ -144,11 +149,18 @@ build_device() {
         -configuration Release \
         -sdk iphoneos \
         -quiet \
+        CODE_SIGN_IDENTITY="" \
+        CODE_SIGNING_REQUIRED=NO \
+        CODE_SIGNING_ALLOWED=NO \
         build || {
         log_error "Build failed for iOS device"
         log_info "Check build logs above for details"
         exit 1
     }
+    
+    # Clean extended attributes from built framework
+    log_info "Cleaning framework attributes..."
+    xattr -cr "$BUILD_DIR/Release-iphoneos" 2>/dev/null || true
     
     log_success "Built for iOS device"
 }
@@ -166,10 +178,17 @@ build_simulator() {
         -configuration Release \
         -sdk iphonesimulator \
         -quiet \
+        CODE_SIGN_IDENTITY="" \
+        CODE_SIGNING_REQUIRED=NO \
+        CODE_SIGNING_ALLOWED=NO \
         build || {
         log_warning "Build failed for iOS Simulator (this is optional)"
         return 1
     }
+    
+    # Clean extended attributes from built framework
+    log_info "Cleaning simulator framework attributes..."
+    xattr -cr "$BUILD_DIR/Release-iphonesimulator" 2>/dev/null || true
     
     log_success "Built for iOS Simulator"
 }
@@ -262,6 +281,15 @@ main() {
     
     # Check environment
     check_environment
+    
+    # Pre-build setup (keys, embedding, encryption)
+    log_info "Running pre-build setup..."
+    "$SCRIPT_DIR/prebuild.sh" || {
+        log_error "Pre-build setup failed"
+        exit 1
+    }
+    log_success "Pre-build setup complete"
+    echo ""
     
     # Configure
     configure_build

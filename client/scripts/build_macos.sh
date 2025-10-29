@@ -51,26 +51,13 @@ if ! command -v xcodebuild &> /dev/null; then
 fi
 print_info "Xcode found: $(xcodebuild -version | head -1)"
 
-# Step 2: Check and generate keys
-print_step "Checking RSA Keys"
+# Step 2: Pre-build setup (keys, embedding, encryption)
+print_step "Running Pre-build Setup"
 
-PRIVATE_KEY="$PROJECT_ROOT/keys/private_key.pem"
-PUBLIC_KEY="$PROJECT_ROOT/keys/public_key.pem"
+"$SCRIPT_DIR/prebuild.sh"
+print_success "Pre-build setup complete"
 
-if [ ! -f "$PRIVATE_KEY" ] || [ ! -f "$PUBLIC_KEY" ]; then
-    print_info "Keys not found, generating..."
-    "$SCRIPT_DIR/generate_keys.sh"
-else
-    print_info "Keys found"
-fi
-
-# Step 3: Embed public key
-print_step "Embedding Public Key"
-
-"$SCRIPT_DIR/embed_public_key.sh"
-print_success "Public key embedded"
-
-# Step 4: Build for arm64 (Apple Silicon)
+# Step 3: Build for arm64 (Apple Silicon)
 print_step "Building for macOS ARM64 (Apple Silicon)"
 
 BUILD_DIR_ARM64="$PROJECT_ROOT/build-macos-arm64"
@@ -90,7 +77,7 @@ cmake --build . --config Release
 
 print_success "ARM64 build complete"
 
-# Step 5: Build for x86_64 (Intel)
+# Step 4: Build for x86_64 (Intel)
 print_step "Building for macOS x86_64 (Intel)"
 
 BUILD_DIR_X86="$PROJECT_ROOT/build-macos-x86_64"
@@ -110,7 +97,7 @@ cmake --build . --config Release
 
 print_success "x86_64 build complete"
 
-# Step 6: Create Universal Binary
+# Step 5: Create Universal Binary
 print_step "Creating Universal Binary"
 
 UNIVERSAL_DIR="$PROJECT_ROOT/build-macos"
@@ -136,7 +123,7 @@ lipo -create "$ARM64_LIB" "$X86_LIB" \
 
 print_success "Universal binary created"
 
-# Step 7: Copy headers
+# Step 6: Copy headers
 print_step "Copying Headers"
 
 cp "$PROJECT_ROOT/passgfw.h" "$UNIVERSAL_DIR/include/"
@@ -144,7 +131,7 @@ cp "$PROJECT_ROOT/firewall_detector.h" "$UNIVERSAL_DIR/include/"
 
 print_success "Headers copied"
 
-# Step 8: Verify architecture
+# Step 7: Verify architecture
 print_step "Verifying Architecture"
 
 echo ""
@@ -155,7 +142,7 @@ echo ""
 SIZE=$(du -sh "$UNIVERSAL_DIR/lib/libpassgfw_client.a" | cut -f1)
 print_info "Library size: $SIZE"
 
-# Step 9: Create pkg-config file
+# Step 8: Create pkg-config file
 print_step "Creating pkg-config File"
 
 cat > "$UNIVERSAL_DIR/passgfw_client.pc" << EOF
@@ -173,7 +160,7 @@ EOF
 
 print_success "pkg-config file created"
 
-# Step 10: Create test program
+# Step 9: Create test program
 print_step "Creating Test Program"
 
 cat > "$UNIVERSAL_DIR/test.c" << 'EOF'
