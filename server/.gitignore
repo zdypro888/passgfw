@@ -1,0 +1,13 @@
+# Binaries
+passgfw-server
+passgfw-server-*
+*.exe
+
+# Go
+go.sum
+
+# Keys (NEVER commit!)
+*.pem
+*.key
+keys/
+

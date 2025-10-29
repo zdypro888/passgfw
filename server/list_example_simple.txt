@@ -1,0 +1,4 @@
+*GFW*
+https://server1.example.com/passgfw|https://server2.example.com/passgfw|https://server3.example.com/passgfw
+*GFW*
+

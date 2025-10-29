@@ -1,0 +1,58 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Debug Client",
+            "type": "shell",
+            "command": "cd ${workspaceFolder}/client && mkdir -p build-macos-debug && cd build-macos-debug && cmake .. -DCMAKE_BUILD_TYPE=Debug -DCMAKE_OSX_ARCHITECTURES=arm64 && cmake --build . && cp ${workspaceFolder}/client/build-macos-debug/Release/libpassgfw_client.a ${workspaceFolder}/client/build-macos/lib/ 2>/dev/null || true",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc"],
+            "detail": "Build PassGFW client in debug mode"
+        },
+        {
+            "label": "Build and Compile Test",
+            "type": "shell",
+            "command": "cd ${workspaceFolder}/client/scripts && ./build_macos.sh && cd ${workspaceFolder}/client/build-macos && clang -g -O0 ${workspaceFolder}/client/examples/example_macos.c -o test_debug -I./include -L./lib -lpassgfw_client -framework Foundation -framework Security -lc++",
+            "group": "build",
+            "problemMatcher": ["$gcc"],
+            "detail": "Build client and compile debug test program"
+        },
+        {
+            "label": "Compile macOS Example",
+            "type": "shell",
+            "command": "cd ${workspaceFolder}/client/build-macos && clang -g -O0 ../examples/example_macos.c -o example -I./include -L./lib -lpassgfw_client -framework Foundation -framework Security -lc++",
+            "group": "build",
+            "problemMatcher": ["$gcc"],
+            "detail": "Compile macOS example with debug symbols"
+        },
+        {
+            "label": "Start Go Server",
+            "type": "shell",
+            "command": "cd ${workspaceFolder}/server && go run main.go",
+            "isBackground": true,
+            "problemMatcher": {
+                "pattern": {
+                    "regexp": "^(.*)$",
+                    "file": 1
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": ".*PassGFW Server Starting.*",
+                    "endsPattern": ".*Server listening.*"
+                }
+            },
+            "detail": "Start Go server in background"
+        },
+        {
+            "label": "Clean Build",
+            "type": "shell",
+            "command": "${workspaceFolder}/client/scripts/CLEAN.sh",
+            "problemMatcher": [],
+            "detail": "Clean all build artifacts"
+        }
+    ]
+}
+
