@@ -2,31 +2,33 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Build Debug Client",
+            "label": "Build macOS Client Library",
             "type": "shell",
-            "command": "cd ${workspaceFolder}/client && mkdir -p build-macos-debug && cd build-macos-debug && cmake .. -DCMAKE_BUILD_TYPE=Debug -DCMAKE_OSX_ARCHITECTURES=arm64 && cmake --build . && cp ${workspaceFolder}/client/build-macos-debug/Release/libpassgfw_client.a ${workspaceFolder}/client/build-macos/lib/ 2>/dev/null || true",
+            "command": "cd ${workspaceFolder}/client/scripts && ./build_macos.sh",
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
             "problemMatcher": ["$gcc"],
-            "detail": "Build PassGFW client in debug mode"
-        },
-        {
-            "label": "Build and Compile Test",
-            "type": "shell",
-            "command": "cd ${workspaceFolder}/client/scripts && ./build_macos.sh && cd ${workspaceFolder}/client/build-macos && clang -g -O0 ${workspaceFolder}/client/examples/example_macos.c -o test_debug -I./include -L./lib -lpassgfw_client -framework Foundation -framework Security -lc++",
-            "group": "build",
-            "problemMatcher": ["$gcc"],
-            "detail": "Build client and compile debug test program"
+            "detail": "Build PassGFW client library for macOS (universal binary)"
         },
         {
             "label": "Compile macOS Example",
             "type": "shell",
-            "command": "cd ${workspaceFolder}/client/build-macos && clang -g -O0 ../examples/example_macos.c -o example -I./include -L./lib -lpassgfw_client -framework Foundation -framework Security -lc++",
+            "command": "cd ${workspaceFolder}/client/build-macos && clang -g -O0 ../examples/example_macos.c -o example_macos -I./include -L./lib -lpassgfw_client -framework Foundation -framework Security -lc++",
             "group": "build",
+            "dependsOn": ["Build macOS Client Library"],
             "problemMatcher": ["$gcc"],
-            "detail": "Compile macOS example with debug symbols"
+            "detail": "Compile macOS example (depends on library build)"
+        },
+        {
+            "label": "Compile C Example",
+            "type": "shell",
+            "command": "cd ${workspaceFolder}/client/build-macos && clang -g -O0 ../examples/example_c.c -o example_c -I./include -L./lib -lpassgfw_client -framework Foundation -framework Security -lc++",
+            "group": "build",
+            "dependsOn": ["Build macOS Client Library"],
+            "problemMatcher": ["$gcc"],
+            "detail": "Compile C example (depends on library build)"
         },
         {
             "label": "Start Go Server",
