@@ -23,7 +23,7 @@ print("║           PassGFW Client - macOS Example (Swift)          ║")
 print("╚════════════════════════════════════════════════════════════╝\n")
 
 // Create PassGFW instance
-let detector = PassGFW()
+let detector = PassGFWClient()
 
 // Enable debug logging
 detector.setLogLevel(.debug)

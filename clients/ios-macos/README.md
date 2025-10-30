@@ -44,7 +44,7 @@ dependencies: [
 import PassGFW
 
 // 创建实例
-let passgfw = PassGFW()
+let passgfw = PassGFWClient()
 
 // 获取可用服务器（异步）
 Task {
@@ -66,7 +66,7 @@ if let server = await passgfw.getFinalServer(customData: "my-app-v1.0") {
 ### 自定义 URL 列表
 
 ```swift
-let passgfw = PassGFW()
+let passgfw = PassGFWClient()
 
 // 设置自定义 URL 列表
 passgfw.setURLList([
@@ -81,7 +81,7 @@ passgfw.addURL("https://another.com/passgfw")
 ### 日志控制
 
 ```swift
-let passgfw = PassGFW()
+let passgfw = PassGFWClient()
 
 // 设置日志级别
 passgfw.setLogLevel(.info)  // 只显示 info 及以上
