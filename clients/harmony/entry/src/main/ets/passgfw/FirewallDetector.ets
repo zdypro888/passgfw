@@ -195,7 +195,6 @@ export class FirewallDetector {
       Logger.getInstance().debug(`Server response JSON: ${serverResponseJSON}`);
       
       // 8. Verify signature
-      const textDecoder = new util.TextDecoder();
       const serverResponseData = textEncoder.encodeInto(serverResponseJSON);
       const signatureData = base64Helper.decodeSync(signature);
       

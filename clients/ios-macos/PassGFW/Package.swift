@@ -17,10 +17,7 @@ let package = Package(
     targets: [
         .target(
             name: "PassGFW",
-            dependencies: []),
-        .testTarget(
-            name: "PassGFWTests",
-            dependencies: ["PassGFW"]),
+            dependencies: [])
     ]
 )
 
