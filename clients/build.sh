@@ -20,6 +20,7 @@ set -e
 #   --config FILE       Use custom config file (default: build_config.json)
 #   --urls "url1,url2"  Override URLs temporarily
 #   --clean             Clean before build
+#   --xcframework       Generate XCFramework for iOS/macOS (for distribution)
 #
 # Examples:
 #   ./build.sh ios
@@ -36,6 +37,7 @@ DEFAULT_URLS='["http://localhost:8080/passgfw"]'
 DEFAULT_KEY_PATH="../server/keys/public_key.pem"
 CLEAN_BUILD=false
 CUSTOM_URLS=""
+BUILD_XCFRAMEWORK=false
 
 # Parse arguments
 PLATFORM=""
@@ -55,6 +57,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --clean)
             CLEAN_BUILD=true
+            shift
+            ;;
+        --xcframework)
+            BUILD_XCFRAMEWORK=true
             shift
             ;;
         *)
@@ -297,6 +303,72 @@ update_config_file() {
 # Build Functions
 # ============================================================================
 
+build_xcframework() {
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📦 Building XCFramework..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
+    # Clean previous builds
+    rm -rf .build/xcframework
+    mkdir -p .build/xcframework
+    
+    # Check if xcodebuild is available
+    if ! command -v xcodebuild &> /dev/null; then
+        echo "❌ xcodebuild not found. XCFramework requires Xcode."
+        exit 1
+    fi
+    
+    echo "📱 Building iOS device..."
+    xcodebuild archive \
+        -scheme PassGFW \
+        -destination "generic/platform=iOS" \
+        -archivePath ".build/xcframework/ios.xcarchive" \
+        -derivedDataPath ".build/DerivedData" \
+        SKIP_INSTALL=NO \
+        BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+        CODE_SIGN_IDENTITY="" \
+        CODE_SIGNING_REQUIRED=NO \
+        CODE_SIGNING_ALLOWED=NO
+    
+    echo "📱 Building iOS Simulator..."
+    xcodebuild archive \
+        -scheme PassGFW \
+        -destination "generic/platform=iOS Simulator" \
+        -archivePath ".build/xcframework/ios-simulator.xcarchive" \
+        -derivedDataPath ".build/DerivedData" \
+        SKIP_INSTALL=NO \
+        BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+        CODE_SIGN_IDENTITY="" \
+        CODE_SIGNING_REQUIRED=NO \
+        CODE_SIGNING_ALLOWED=NO
+    
+    echo "💻 Building macOS..."
+    xcodebuild archive \
+        -scheme PassGFW \
+        -destination "platform=macOS" \
+        -archivePath ".build/xcframework/macos.xcarchive" \
+        -derivedDataPath ".build/DerivedData" \
+        SKIP_INSTALL=NO \
+        BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+        CODE_SIGN_IDENTITY="" \
+        CODE_SIGNING_REQUIRED=NO \
+        CODE_SIGNING_ALLOWED=NO
+    
+    echo "🔨 Creating XCFramework..."
+    xcodebuild -create-xcframework \
+        -framework ".build/xcframework/ios.xcarchive/Products/Library/Frameworks/PassGFW.framework" \
+        -framework ".build/xcframework/ios-simulator.xcarchive/Products/Library/Frameworks/PassGFW.framework" \
+        -framework ".build/xcframework/macos.xcarchive/Products/Library/Frameworks/PassGFW.framework" \
+        -output ".build/xcframework/PassGFW.xcframework"
+    
+    echo ""
+    echo "✅ XCFramework created successfully!"
+    echo "📦 Output: $(pwd)/.build/xcframework/PassGFW.xcframework"
+    echo ""
+    echo "📊 Framework size:"
+    du -sh .build/xcframework/PassGFW.xcframework
+}
+
 build_ios() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "📱 Building iOS..."
@@ -306,12 +378,16 @@ build_ios() {
     update_config_file "ios-macos/Sources/PassGFW/Config.swift" "/tmp/swift_config.txt"
     
     cd ios-macos
-    if [ "$CLEAN_BUILD" = true ]; then
-        swift package clean
-    fi
-    swift build -c release
     
-    echo "✅ iOS build complete"
+    if [ "$BUILD_XCFRAMEWORK" = true ]; then
+        build_xcframework
+    else
+        if [ "$CLEAN_BUILD" = true ]; then
+            swift package clean
+        fi
+        swift build -c release
+        echo "✅ iOS build complete"
+    fi
 }
 
 build_macos() {
@@ -323,12 +399,16 @@ build_macos() {
     update_config_file "ios-macos/Sources/PassGFW/Config.swift" "/tmp/swift_config.txt"
     
     cd ios-macos
-    if [ "$CLEAN_BUILD" = true ]; then
-        swift package clean
-    fi
-    swift build -c release
     
-    echo "✅ macOS build complete"
+    if [ "$BUILD_XCFRAMEWORK" = true ]; then
+        build_xcframework
+    else
+        if [ "$CLEAN_BUILD" = true ]; then
+            swift package clean
+        fi
+        swift build -c release
+        echo "✅ macOS build complete"
+    fi
 }
 
 build_android() {
