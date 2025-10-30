@@ -34,11 +34,13 @@ void passgfw_destroy(PassGFWDetector detector);
  * Loop infinitely with retries if all URLs fail
  * 
  * @param detector Detector handle
+ * @param custom_data Custom data to send with request (can be NULL)
  * @param out_domain Output buffer for domain string
  * @param domain_size Buffer size
  * @return 0 on success, -1 on failure
  */
-int passgfw_get_final_server(PassGFWDetector detector, 
+int passgfw_get_final_server(PassGFWDetector detector,
+                             const char* custom_data,
                              char* out_domain, 
                              int domain_size);
 

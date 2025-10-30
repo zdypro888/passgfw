@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"flag"
 	"fmt"
@@ -146,10 +147,49 @@ func handlePassGFW(c *gin.Context) {
 	}
 
 	decryptedStr := string(decryptedData)
-	log.Printf("✅ Decrypted: %s", decryptedStr)
+	log.Printf("✅ Decrypted JSON: %s", decryptedStr)
 
-	// Sign the decrypted data
-	hashed := sha256.Sum256([]byte(decryptedStr))
+	// Parse decrypted JSON payload
+	var payload struct {
+		Nonce      string `json:"nonce"`
+		ClientData string `json:"client_data"`
+	}
+
+	if err := json.Unmarshal(decryptedData, &payload); err != nil {
+		log.Printf("❌ Failed to parse payload JSON: %v", err)
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "Invalid payload format",
+		})
+		return
+	}
+
+	log.Printf("   Nonce: %s", payload.Nonce)
+	if payload.ClientData != "" {
+		log.Printf("   Client data: %s", payload.ClientData)
+	}
+
+	// Determine real server domain based on client data
+	// You can customize this logic
+	realDomain := getRealDomain(c.Request.Host, payload.ClientData)
+	log.Printf("   Server domain: %s", realDomain)
+
+	// Construct response JSON
+	responsePayload := map[string]string{
+		"nonce":         payload.Nonce,
+		"server_domain": realDomain,
+	}
+
+	responseJSON, err := json.Marshal(responsePayload)
+	if err != nil {
+		log.Printf("❌ Failed to marshal response JSON: %v", err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: "Failed to create response",
+		})
+		return
+	}
+
+	// Sign the response JSON
+	hashed := sha256.Sum256(responseJSON)
 	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, hashed[:])
 	if err != nil {
 		log.Printf("❌ Signing failed: %v", err)
@@ -163,12 +203,34 @@ func handlePassGFW(c *gin.Context) {
 
 	// Send response
 	resp := PassGFWResponse{
-		Data:      decryptedStr,
+		Data:      string(responseJSON),
 		Signature: signatureBase64,
 	}
 
 	c.JSON(http.StatusOK, resp)
-	log.Printf("📤 Response sent successfully")
+	log.Printf("📤 Response sent: %s", string(responseJSON))
+}
+
+// Get real server domain based on request and client data
+// You can customize this logic to route to different backends
+func getRealDomain(requestHost, clientData string) string {
+	// Default: return the request host
+	// You can add custom logic here based on clientData
+	// For example:
+	// - Route to different CDN based on clientData
+	// - Return different domains for different clients
+	// - Implement load balancing logic
+
+	if clientData == "cdn" {
+		return "cdn.example.com:443"
+	}
+
+	if clientData == "mobile" {
+		return "mobile.example.com:443"
+	}
+
+	// Default: return request host
+	return requestHost
 }
 
 // Handle /health endpoint

@@ -33,9 +33,10 @@ public:
      * 4. If all URLs fail, wait and retry
      * 5. Loop infinitely until success
      * 
-     * @return Available server domain (e.g. "abc.com")
+     * @param custom_data Custom data to send with request
+     * @return Available server domain (e.g. "abc.com:8080")
      */
-    std::string GetFinalServer();
+    std::string GetFinalServer(const std::string& custom_data = "");
     
     /**
      * Set custom URL list (override built-in list)
@@ -56,26 +57,40 @@ private:
     /**
      * Detect single URL
      * @param url URL to detect
+     * @param custom_data Custom data to send with request
      * @param domain Output parameter, store successful domain
      * @return true on success
      */
-    bool CheckURL(const std::string& url, std::string& domain);
+    bool CheckURL(const std::string& url, const std::string& custom_data, std::string& domain);
     
     /**
      * Detect normal URL (POST data, verify signature)
      * @param url URL to detect
+     * @param custom_data Custom data to send with request
      * @param domain Output parameter, store successful domain
      * @return true on success
      */
-    bool CheckNormalURL(const std::string& url, std::string& domain);
+    bool CheckNormalURL(const std::string& url, const std::string& custom_data, std::string& domain);
     
     /**
-     * Detect list URL (get URL list)
+     * Detect list URL (get URL list and check sub-URLs)
+     * 
+     * Process:
+     * 1. GET list.txt content
+     * 2. Parse into sub-URL list
+     * 3. Check each sub-URL (recursively, supports nested list#)
+     * 4. If any sub-URL succeeds, return true with domain
+     * 5. If all sub-URLs fail, return false
+     * 
+     * Note: Sub-list is NOT added to main list, it's checked immediately
+     * and discarded. Next time this list# is checked, it will be re-fetched.
+     * 
      * @param url URL to detect (ending with #)
+     * @param custom_data Custom data passed to sub-URL checks
      * @param domain Output parameter, store successful domain
      * @return true on success
      */
-    bool CheckListURL(const std::string& url, std::string& domain);
+    bool CheckListURL(const std::string& url, const std::string& custom_data, std::string& domain);
     
     /**
      * Extract domain from URL
@@ -95,6 +110,7 @@ private:
     std::vector<std::string> url_list_;
     INetworkClient* network_client_;  // Unified network client
     std::string last_error_;
+    std::string custom_data_;  // Custom data for current detection
 };
 
 } // namespace passgfw

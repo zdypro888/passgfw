@@ -34,7 +34,8 @@ void* detection_thread(void* arg) {
     printf("⚠️  Make sure server is running: cd server && go run main.go\n\n");
     
     char domain[256];
-    int result = passgfw_get_final_server(detector, domain, sizeof(domain));
+    // Pass custom data (can be NULL or empty string for default behavior)
+    int result = passgfw_get_final_server(detector, "test-client", domain, sizeof(domain));
     
     if (result == 0) {
         printf("\n✅ Found available server: %s\n", domain);
@@ -88,7 +89,8 @@ int main(int argc, char* argv[]) {
             // Blocking mode
             char domain[256];
             printf("🔍 Running detection (blocking)...\n\n");
-            int result = passgfw_get_final_server(detector, domain, sizeof(domain));
+            // Pass custom data (can be NULL or empty string for default behavior)
+            int result = passgfw_get_final_server(detector, "test-client", domain, sizeof(domain));
             
             if (result == 0) {
                 printf("\n✅ Found available server: %s\n", domain);

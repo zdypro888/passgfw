@@ -13,7 +13,8 @@ void* detect_thread(void* arg) {
     char domain[256];
     printf("Starting server detection...\n");
     
-    if (passgfw_get_final_server(detector, domain, sizeof(domain)) == 0) {
+    // Pass custom data (NULL for default, or any custom string)
+    if (passgfw_get_final_server(detector, NULL, domain, sizeof(domain)) == 0) {
         printf("✅ Found available server: %s\n", domain);
     } else {
         char error[256];

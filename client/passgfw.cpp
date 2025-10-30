@@ -20,7 +20,8 @@ void passgfw_destroy(PassGFWDetector detector) {
     }
 }
 
-int passgfw_get_final_server(PassGFWDetector detector, 
+int passgfw_get_final_server(PassGFWDetector detector,
+                             const char* custom_data,
                              char* out_domain, 
                              int domain_size) {
     if (!detector || !out_domain || domain_size <= 0) {
@@ -29,7 +30,8 @@ int passgfw_get_final_server(PassGFWDetector detector,
     
     try {
         FirewallDetector* d = static_cast<FirewallDetector*>(detector);
-        std::string domain = d->GetFinalServer();
+        std::string custom_str = custom_data ? custom_data : "";
+        std::string domain = d->GetFinalServer(custom_str);
         
         // Copy to output buffer
         size_t len = domain.length();

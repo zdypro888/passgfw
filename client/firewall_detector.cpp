@@ -3,7 +3,6 @@
 #include <thread>
 #include <chrono>
 #include <sstream>
-#include <algorithm>
 
 namespace passgfw {
 
@@ -28,9 +27,12 @@ FirewallDetector::~FirewallDetector() {
     }
 }
 
-std::string FirewallDetector::GetFinalServer() {
-    printf("[DEBUG] GetFinalServer() called\n"); fflush(stdout);
+std::string FirewallDetector::GetFinalServer(const std::string& custom_data) {
+    printf("[DEBUG] GetFinalServer() called with custom_data: %s\n", custom_data.c_str()); fflush(stdout);
     printf("[DEBUG] URL list size: %zu\n", url_list_.size()); fflush(stdout);
+    
+    // Store custom data for current detection
+    custom_data_ = custom_data;
     
     // Loop infinitely until finding an available server
     while (true) {
@@ -41,7 +43,7 @@ std::string FirewallDetector::GetFinalServer() {
             std::string domain;
             
             // Try to detect this URL
-            if (CheckURL(url, domain)) {
+            if (CheckURL(url, custom_data_, domain)) {
                 // Success! Return domain
                 return domain;
             }
@@ -71,19 +73,19 @@ std::string FirewallDetector::GetLastError() const {
     return last_error_;
 }
 
-bool FirewallDetector::CheckURL(const std::string& url, std::string& domain) {
+bool FirewallDetector::CheckURL(const std::string& url, const std::string& custom_data, std::string& domain) {
     last_error_.clear();
     
     // Check if it's a special URL (ending with #)
     if (!url.empty() && url.back() == '#') {
-        return CheckListURL(url, domain);
+        return CheckListURL(url, custom_data, domain);
     } else {
-        return CheckNormalURL(url, domain);
+        return CheckNormalURL(url, custom_data, domain);
     }
 }
 
-bool FirewallDetector::CheckNormalURL(const std::string& url, std::string& domain) {
-    printf("[DEBUG] CheckNormalURL() called for: %s\n", url.c_str());
+bool FirewallDetector::CheckNormalURL(const std::string& url, const std::string& custom_data, std::string& domain) {
+    printf("[DEBUG] CheckNormalURL() called for: %s with custom_data: %s\n", url.c_str(), custom_data.c_str());
     
     if (!network_client_) {
         last_error_ = "Network client not initialized";
@@ -109,11 +111,25 @@ bool FirewallDetector::CheckNormalURL(const std::string& url, std::string& domai
         return false;
     }
     
-    // 2. Encrypt random data with public key
-    printf("[DEBUG] Encrypting data...\n");
+    // 2. Build JSON with random and custom data
+    std::map<std::string, std::string> payload;
+    payload["nonce"] = random_data;
+    payload["client_data"] = custom_data;
+    
+    std::string payload_json;
+    try {
+        payload_json = network_client_->ToJson(payload);
+        printf("[DEBUG] Payload JSON: %s\n", payload_json.c_str());
+    } catch (...) {
+        last_error_ = "Failed to construct payload JSON: " + url;
+        return false;
+    }
+    
+    // 3. Encrypt payload JSON with public key
+    printf("[DEBUG] Encrypting payload...\n");
     std::string encrypted_data;
     try {
-        encrypted_data = network_client_->EncryptWithPublicKey(random_data);
+        encrypted_data = network_client_->EncryptWithPublicKey(payload_json);
         printf("[DEBUG] Encrypted data: %zu bytes\n", encrypted_data.length());
         if (encrypted_data.empty()) {
             last_error_ = "Failed to encrypt data: " + url;
@@ -124,7 +140,7 @@ bool FirewallDetector::CheckNormalURL(const std::string& url, std::string& domai
         return false;
     }
     
-    // 3. Construct POST request JSON
+    // 4. Construct POST request JSON
     printf("[DEBUG] Constructing JSON request...\n");
     std::map<std::string, std::string> request_data;
     request_data["data"] = encrypted_data;
@@ -138,7 +154,7 @@ bool FirewallDetector::CheckNormalURL(const std::string& url, std::string& domai
         return false;
     }
     
-    // 4. POST request to server
+    // 5. POST request to server
     HttpResponse response;
     try {
         response = network_client_->Post(url, request_json);
@@ -152,7 +168,7 @@ bool FirewallDetector::CheckNormalURL(const std::string& url, std::string& domai
         return false;
     }
     
-    // 5. Parse server response JSON
+    // 6. Parse server response JSON
     std::map<std::string, std::string> response_data;
     try {
         response_data = network_client_->ParseJson(response.body);
@@ -161,20 +177,22 @@ bool FirewallDetector::CheckNormalURL(const std::string& url, std::string& domai
         return false;
     }
     
-    // 6. Check if JSON contains required fields
+    // 7. Check if JSON contains required fields
     if (response_data.find("data") == response_data.end() ||
         response_data.find("signature") == response_data.end()) {
         last_error_ = "Response JSON missing required fields: " + url;
         return false;
     }
     
-    std::string decrypted_data = response_data["data"];
+    std::string server_response_json = response_data["data"];
     std::string signature = response_data["signature"];
     
-    // 7. Verify signature
+    printf("[DEBUG] Server response JSON: %s\n", server_response_json.c_str());
+    
+    // 8. Verify signature
     bool signature_valid = false;
     try {
-        signature_valid = network_client_->VerifySignature(decrypted_data, signature);
+        signature_valid = network_client_->VerifySignature(server_response_json, signature);
     } catch (...) {
         last_error_ = "Signature verification exception: " + url;
         return false;
@@ -185,20 +203,42 @@ bool FirewallDetector::CheckNormalURL(const std::string& url, std::string& domai
         return false;
     }
     
-    // 8. Verify decrypted data matches original random data
-    if (decrypted_data != random_data) {
-        last_error_ = "Data mismatch: " + url + " (expected: " + random_data.substr(0, 10) + 
-                     "..., actual: " + decrypted_data.substr(0, 10) + "...)";
+    // 9. Parse server response JSON
+    std::map<std::string, std::string> server_payload;
+    try {
+        server_payload = network_client_->ParseJson(server_response_json);
+    } catch (...) {
+        last_error_ = "Failed to parse server response JSON: " + url;
         return false;
     }
     
-    // 9. All verification passed, extract domain
-    domain = ExtractDomain(url);
+    // 10. Check required fields in response
+    if (server_payload.find("nonce") == server_payload.end() ||
+        server_payload.find("server_domain") == server_payload.end()) {
+        last_error_ = "Server response missing required fields: " + url;
+        return false;
+    }
+    
+    std::string returned_nonce = server_payload["nonce"];
+    std::string returned_domain = server_payload["server_domain"];
+    
+    printf("[DEBUG] Returned nonce: %s\n", returned_nonce.c_str());
+    printf("[DEBUG] Returned domain: %s\n", returned_domain.c_str());
+    
+    // 11. Verify nonce matches
+    if (returned_nonce != random_data) {
+        last_error_ = "Nonce mismatch: " + url + " (expected: " + random_data.substr(0, 10) + 
+                     "..., actual: " + returned_nonce.substr(0, 10) + "...)";
+        return false;
+    }
+    
+    // 12. All verification passed, use server-provided domain
+    domain = returned_domain;
+    printf("[DEBUG] Verification successful! Using domain: %s\n", domain.c_str());
     return true;
 }
 
-bool FirewallDetector::CheckListURL(const std::string& url, std::string& domain) {
-    (void)domain; // Unused parameter - list URLs don't return domain
+bool FirewallDetector::CheckListURL(const std::string& url, const std::string& custom_data, std::string& domain) {
     printf("[DEBUG] CheckListURL() called for: %s\n", url.c_str()); fflush(stdout);
     
     if (!network_client_) {
@@ -209,9 +249,10 @@ bool FirewallDetector::CheckListURL(const std::string& url, std::string& domain)
     // Remove trailing # character
     std::string actual_url = url.substr(0, url.length() - 1);
     
-    // ==================== C++ layer implements list fetch logic ====================
+    // ==================== Fetch sub-list and check each URL ====================
     
     // 1. GET request to fetch list file content
+    printf("[DEBUG] Fetching sub-list from: %s\n", actual_url.c_str()); fflush(stdout);
     HttpResponse response;
     try {
         response = network_client_->Get(actual_url);
@@ -226,29 +267,39 @@ bool FirewallDetector::CheckListURL(const std::string& url, std::string& domain)
     }
     
     // 2. Parse text content into URL list
-    std::vector<std::string> addon_urls = ParseURLList(response.body);
+    std::vector<std::string> sub_urls = ParseURLList(response.body);
     
-    if (addon_urls.empty()) {
-        last_error_ = "List empty or parse failed: " + actual_url;
+    if (sub_urls.empty()) {
+        last_error_ = "Sub-list empty or parse failed: " + actual_url;
         return false;
     }
     
-    printf("[DEBUG] Fetched %zu URLs from list, adding to main URL list\n", addon_urls.size()); fflush(stdout);
+    printf("[DEBUG] Fetched %zu URLs from sub-list, checking each one...\n", sub_urls.size()); fflush(stdout);
     
-    // 3. Add all URLs from list to the main URL list
-    // Important: Don't recursively check here!
-    // Let the main loop restart and check all URLs from beginning
-    for (const auto& addon_url : addon_urls) {
-        // Avoid duplicates
-        if (std::find(url_list_.begin(), url_list_.end(), addon_url) == url_list_.end()) {
-            printf("[DEBUG] Adding new URL: %s\n", addon_url.c_str()); fflush(stdout);
-            url_list_.push_back(addon_url);
+    // 3. Check each URL in the sub-list
+    // Important: Check immediately, don't add to main list
+    for (const auto& sub_url : sub_urls) {
+        printf("[DEBUG] Checking sub-list URL: %s\n", sub_url.c_str()); fflush(stdout);
+        
+        std::string sub_domain;
+        // Recursively check (supports nested list#)
+        if (CheckURL(sub_url, custom_data, sub_domain)) {
+            // Success! Return this domain
+            printf("[DEBUG] Sub-list URL succeeded: %s -> %s\n", sub_url.c_str(), sub_domain.c_str()); fflush(stdout);
+            domain = sub_domain;
+            return true;
         }
+        
+        // Failed, try next URL in sub-list
+        printf("[DEBUG] Sub-list URL failed: %s, trying next...\n", sub_url.c_str()); fflush(stdout);
+        
+        // Short delay before next URL
+        std::this_thread::sleep_for(std::chrono::milliseconds(Config::URL_INTERVAL));
     }
     
-    // Return false to let the main loop continue
-    // The main loop will restart from beginning and check all URLs (including newly added ones)
-    last_error_ = "Added URLs from list: " + actual_url + ", restarting detection from beginning";
+    // All URLs in sub-list failed
+    printf("[DEBUG] All URLs in sub-list failed\n"); fflush(stdout);
+    last_error_ = "All URLs in sub-list failed: " + actual_url;
     return false;
 }
 
