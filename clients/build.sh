@@ -380,25 +380,21 @@ case "$PLATFORM" in
 esac
 
 # ============================================================================
-# Cleanup and Restore
+# Cleanup
 # ============================================================================
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "🧹 Restoring original config files..."
+echo "🧹 Cleaning up temporary files..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-# Restore files using git
-if command -v git &> /dev/null; then
-    git checkout ios-macos/Sources/PassGFW/Config.swift 2>/dev/null || true
-    git checkout android/passgfw/src/main/kotlin/com/passgfw/Config.kt 2>/dev/null || true
-    git checkout harmony/entry/src/main/ets/passgfw/Config.ets 2>/dev/null || true
-fi
 
 # Cleanup temp files
 rm -f /tmp/swift_config.txt /tmp/kotlin_config.txt /tmp/arkts_config.txt
 
-echo "✅ Config files restored"
+echo "✅ Cleanup complete"
+echo ""
+echo "📝 Note: Config files have been updated with URLs from build_config.json"
+echo "   This is normal - these files should contain your real configuration."
 echo ""
 echo "╔══════════════════════════════════════════════════════════════════╗"
 echo "║   🎉 Build Complete!                                             ║"
