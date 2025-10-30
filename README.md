@@ -1,442 +1,328 @@
 # 🚀 PassGFW
 
-Cross-platform firewall detection and server availability checker for iOS, macOS, Android, and HarmonyOS.
+跨平台防火墙检测和服务器可用性检查库，支持 iOS、macOS、Android 和 HarmonyOS。
 
-**Lightweight • Secure • High-Performance**
-
----
-
-## 📖 Overview
-
-PassGFW helps apps bypass firewall restrictions by testing multiple server endpoints with RSA encryption and signature verification.
-
-**Features:**
-- 🔐 RSA 2048-bit encryption + SHA256 signatures
-- 🌍 iOS, macOS, Android, HarmonyOS support
-- 📱 Platform-native APIs (NSURLSession, HttpURLConnection, @ohos.net.http)
-- 🔄 Auto-retry with dynamic URL lists
-- 🪶 Lightweight (~164KB iOS XCFramework, ~60KB macOS Universal Binary)
-- ⚡ High-performance Gin server (1.2M req/s)
+**轻量级 • 安全 • 高性能 • 纯原生**
 
 ---
 
-## 🚀 Quick Start
+## 📖 概述
+
+PassGFW 帮助应用通过测试多个服务器端点（使用 RSA 加密和签名验证）来绕过防火墙限制。
+
+**特性：**
+- 🔐 RSA 2048 位加密 + SHA256 签名
+- 🌍 支持 iOS、macOS、Android、HarmonyOS
+- 📱 平台原生实现（Swift、Kotlin、ArkTS）
+- 🔄 自动重试，支持动态 URL 列表
+- 🪶 轻量级（无第三方依赖）
+- ⚡ 高性能 Go 服务器
+
+---
+
+## 🏗️ 架构
+
+**设计原则：** 每个平台使用原生语言实现，避免跨语言桥接。
+
+```
+clients/
+├── ios-macos/         Swift 实现
+│   ├── Package.swift         Swift Package Manager
+│   ├── Sources/PassGFW/      核心代码 (~1200 行)
+│   └── Examples/             示例程序
+│
+├── android/           Kotlin 实现  
+│   ├── passgfw/              Library 模块
+│   ├── build.gradle.kts      Gradle 配置
+│   └── src/main/kotlin/      核心代码 (~1000 行)
+│
+├── harmony/           ArkTS 实现
+│   ├── entry/                主模块
+│   ├── build-profile.json5   项目配置
+│   └── src/main/ets/         核心代码 (~1100 行)
+│
+└── TESTING_GUIDE.md   测试指南
+
+server/                Go 服务器
+├── main.go                   Gin 框架实现
+└── go.mod                    依赖管理
+```
+
+---
+
+## 🚀 快速开始
+
+### 1. 启动服务器
 
 ```bash
-# 1. Generate keys
-cd client/scripts && ./generate_keys.sh
-
-# 2. Build client
-./build_ios.sh
-
-# 3. Start server
-cd ../../server && go run main.go
-
-# 4. Test
-./test_server.sh
+cd server
+go run main.go --port 8080 --domain localhost:8080
 ```
 
-**That's it!** 🎉
+### 2. 测试 iOS/macOS 客户端
+
+```bash
+cd clients/ios-macos
+swift build
+cd Examples
+swift example_macos.swift
+```
+
+### 3. 测试 Android 客户端
+
+```bash
+cd clients/android
+./gradlew :passgfw:build
+```
+
+### 4. 测试 HarmonyOS 客户端
+
+使用 DevEco Studio 打开 `clients/harmony/`
+
+**详细测试指南：** `clients/TESTING_GUIDE.md`
 
 ---
 
-## 📁 Project Structure
+## 📱 平台支持
 
-```
-passgfw/
-├── client/
-│   ├── scripts/          # Build scripts
-│   │   ├── generate_keys.sh
-│   │   ├── build_ios.sh
-│   │   ├── build_macos.sh
-│   │   ├── build_android.sh
-│   │   └── build_harmony.sh
-│   ├── examples/         # Usage examples
-│   ├── platform/         # iOS/Android/HarmonyOS implementations
-│   ├── config.h/cpp      # Configuration (URLs, timeouts)
-│   └── *.h, *.cpp       # Core C++ code
-├── server/
-│   ├── main.go           # Go server (Gin framework)
-│   └── test_server.sh    # Test script
-├── README.md             # This file
-└── CHANGELOG.md          # Version history
-```
+| 平台 | 语言 | 最低版本 | 状态 |
+|------|------|----------|------|
+| **iOS** | Swift | iOS 13+ | ✅ 完成 |
+| **macOS** | Swift | macOS 10.15+ | ✅ 完成 |
+| **Android** | Kotlin | API 24+ | ✅ 完成 |
+| **HarmonyOS** | ArkTS | API 10+ | ✅ 完成 |
 
 ---
 
-## 🏗️ Building
+## 🔐 密钥生成
 
-### iOS (Production Ready ✅)
+服务器需要 RSA 密钥对：
 
 ```bash
-cd client/scripts
-./build_ios.sh
+cd server
+# 密钥会自动生成到 keys/ 目录
+# 或手动生成：
+mkdir -p keys
+openssl genrsa -out keys/private_key.pem 2048
+openssl rsa -in keys/private_key.pem -pubout -out keys/public_key.pem
 ```
 
-**Output:** `build-ios/passgfw_client.xcframework`
+**注意：**
+- `private_key.pem` - 服务器私钥（**勿泄露**）
+- `public_key.pem` - 公钥（嵌入客户端）
 
-**Auto-steps:**
-1. ✅ Checks for keys (generates if missing)
-2. ✅ Embeds public key into config
-3. ✅ Builds for device + simulator
-4. ✅ Creates Universal XCFramework
+---
 
-**Integration:**
-```bash
-# Drag passgfw_client.xcframework to Xcode
-```
+## 📚 文档
 
+- **测试指南**: [clients/TESTING_GUIDE.md](clients/TESTING_GUIDE.md)
+- **iOS/macOS**: [clients/ios-macos/README.md](clients/ios-macos/README.md)
+- **Android**: [clients/android/README.md](clients/android/README.md)
+- **HarmonyOS**: [clients/harmony/README.md](clients/harmony/README.md)
+- **服务器**: [server/README.md](server/README.md)
+
+---
+
+## ⚙️ 配置
+
+### 更新服务器 URL
+
+每个平台的 `Config` 文件：
+
+**iOS/macOS (Swift):**
 ```swift
-// Swift usage
-let manager = PassGFWManager()
-manager.getFinalServerAsync { domain in
-    print("Available server: \(domain ?? "none")")
-}
-```
-
-### macOS (Production Ready ✅)
-
-```bash
-cd client/scripts
-./build_macos.sh
-```
-
-**Output:** `build-macos/lib/libpassgfw_client.a` (Universal Binary)
-
-**Auto-steps:**
-1. ✅ Builds for arm64 (Apple Silicon)
-2. ✅ Builds for x86_64 (Intel)
-3. ✅ Creates Universal Binary with lipo
-4. ✅ Includes test program
-
-**Integration:**
-```bash
-# Link to your project
-clang your_app.c -o your_app \
-    -I./build-macos/include \
-    -L./build-macos/lib \
-    -lpassgfw_client \
-    -framework Foundation \
-    -framework Security \
-    -lc++
-```
-
-**Use cases:** Local testing, macOS apps, command-line tools
-
-### Android (Framework Ready ⚠️)
-
-```bash
-cd client/scripts
-./build_android.sh
-```
-
-**Output:** `build-android/*/libpassgfw_client.a` + Java stubs
-
-**Note:** Complete `platform/android/NetworkHelper.java` implementation needed.
-
-### HarmonyOS (Framework Ready ⚠️)
-
-```bash
-cd client/scripts
-./build_harmony.sh
-```
-
-**Output:** `build-harmony/*/libpassgfw_client.a` + ArkTS stubs
-
-**Note:** Complete `platform/harmony/network_helper.ets` + NAPI bindings needed.
-
----
-
-## 🔐 Keys & Security
-
-### Generate Keys (First Time)
-
-```bash
-cd client/scripts
-./generate_keys.sh
-```
-
-Creates:
-- `client/keys/private_key.pem` - **SERVER ONLY** (auto-gitignored)
-- `client/keys/public_key.pem` - Embedded in client
-
-**Security:**
-- RSA 2048-bit encryption
-- SHA256 signatures
-- Private key never leaves server
-- Public key embedded at build time
-
----
-
-## 🖥️ Server
-
-### Start Server
-
-```bash
-cd server
-go run main.go
-```
-
-**Endpoints:**
-- `POST /passgfw` - Main verification endpoint
-- `GET /health` - Health check
-
-### Custom Configuration
-
-```bash
-# Custom port
-go run main.go -port 3000
-
-# Custom private key
-go run main.go -private-key /path/to/key.pem
-
-# Debug mode
-go run main.go -debug
-```
-
-### Production Deployment
-
-```bash
-# Build
-cd server
-GOOS=linux GOARCH=amd64 go build -o passgfw-server
-
-# Run with systemd or Docker
-./passgfw-server -port 8080
-```
-
-**Recommended:** Use Nginx/Caddy as HTTPS reverse proxy.
-
----
-
-## ⚙️ Configuration
-
-### Update Server URLs
-
-Edit `client/config.cpp`:
-
-```cpp
-std::vector<std::string> Config::GetBuiltinURLs() {
-    return {
+// clients/ios-macos/Sources/PassGFW/Config.swift
+static func getBuiltinURLs() -> [String] {
+    return [
         "https://your-server.com/passgfw",
-        "https://backup.example.com/passgfw",
-        "https://cdn.example.com/list.txt#"  // URL list
-    };
+        "https://backup.com/passgfw",
+        "https://cdn.com/list.txt#"  // URL 列表
+    ]
 }
 ```
 
-Then rebuild: `cd client/scripts && ./build_ios.sh`
-
-### Update Timeouts
-
-Edit `client/config.h`:
-
-```cpp
-static constexpr int REQUEST_TIMEOUT = 10;  // HTTP timeout (seconds)
-static constexpr int RETRY_INTERVAL = 2;    // Retry interval (seconds)
-static constexpr int URL_INTERVAL = 500;    // URL check interval (ms)
+**Android (Kotlin):**
+```kotlin
+// clients/android/passgfw/src/main/kotlin/com/passgfw/Config.kt
+fun getBuiltinURLs(): List<String> {
+    return listOf(
+        "https://your-server.com/passgfw",
+        "https://backup.com/passgfw"
+    )
+}
 ```
 
-### URL List File Format
+**HarmonyOS (ArkTS):**
+```typescript
+// clients/harmony/entry/src/main/ets/passgfw/Config.ets
+static getBuiltinURLs(): string[] {
+    return [
+        'https://your-server.com/passgfw',
+        'https://backup.com/passgfw'
+    ];
+}
+```
 
-URLs ending with `#` are treated as **list files**. Two formats are supported:
+### URL 列表文件格式
 
-**Format 1: Marked with `*GFW*` (Recommended for cloud storage)**
+URL 以 `#` 结尾表示这是一个**列表文件**。支持两种格式：
 
+**格式 1: 带 `*GFW*` 标记（推荐用于云存储）**
 ```
 *GFW*
-https://server1.com/passgfw|https://server2.com/passgfw|https://server3.com/passgfw
+https://server1.com/passgfw|https://server2.com/passgfw
 *GFW*
 ```
 
-This format extracts URLs from HTML or other content (e.g., from cloud storage shares like Dropbox, Google Drive, etc.). URLs are separated by `|`.
-
-**Format 2: Line-by-line (Legacy)**
-
+**格式 2: 逐行列表**
 ```
 https://server1.com/passgfw
 https://server2.com/passgfw
-https://server3.com/passgfw
-# Comments are ignored
-```
-
-Each URL on a separate line. Empty lines and lines starting with `#` are ignored.
-
-**Example usage:**
-
-```cpp
-// In config.cpp
-return {
-    "https://your-server.com/passgfw",
-    "https://dropbox.com/s/abc123/servers.txt#",  // Cloud storage with *GFW* markers
-    "https://cdn.example.com/list.txt#"           // Simple line-by-line format
-};
+# 注释会被忽略
 ```
 
 ---
 
-## 🏛️ Architecture
-
-**Design Principle:** C++ core handles logic, platform layer handles implementation.
+## 🔄 工作流程
 
 ```
-┌─────────────────────────────────────┐
-│      C++ Core (Cross-platform)      │
-│  firewall_detector.cpp              │
-│  - GetFinalServer() ← Core function │
-│  - CheckURL() ← Detection logic     │
-│  - No JSON/HTTP/Crypto details      │
-└──────────────┬──────────────────────┘
-               │
-┌──────────────┴──────────────────────┐
-│      INetworkClient Interface       │
-│  - VerifyURL()                      │
-│  - FetchURLList()                   │
-└──────────────┬──────────────────────┘
-               │
-    ┌──────────┼──────────┐
-    │          │          │
-┌───┴───┐ ┌────┴───┐ ┌───┴────┐
-│  iOS  │ │Android │ │Harmony │
-│ Layer │ │ Layer  │ │ Layer  │
-└───────┘ └────────┘ └────────┘
+┌─────────┐
+│  Client │
+└────┬────┘
+     │ 1. 生成随机数
+     │ 2. 用公钥加密（含自定义数据）
+     │ 3. POST /passgfw
+     ▼
+┌─────────┐
+│ Server  │
+└────┬────┘
+     │ 4. 用私钥解密
+     │ 5. 返回随机数 + 服务器域名
+     │ 6. 用私钥签名
+     ▼
+┌─────────┐
+│  Client │
+└─────────┘
+     7. 验证签名
+     8. 验证随机数匹配
+     9. 使用返回的服务器域名
 ```
-
-**Platform Implementations:**
-
-| Platform | HTTP | JSON | Crypto | Size |
-|----------|------|------|--------|------|
-| iOS | NSURLSession | NSJSONSerialization | Security.framework | 164KB |
-| Android | HttpURLConnection | org.json | java.security | 30KB/ABI |
-| HarmonyOS | @ohos.net.http | JSON.parse | cryptoFramework | 30KB/ABI |
-
-**No third-party dependencies!**
 
 ---
 
-## 🧪 Testing
+## 📊 性能
 
-### Test Server
-
-```bash
-cd server
-
-# Start server
-go run main.go &
-
-# Run tests
-./test_server.sh
-
-# Stop
-kill %1
-```
-
-Tests:
-- ✅ Health check
-- ✅ Full crypto flow
-- ✅ Encryption verification
-- ✅ Signature verification
+| 指标 | 数值 |
+|------|------|
+| **Swift 代码** | ~1200 行 |
+| **Kotlin 代码** | ~1000 行 |
+| **ArkTS 代码** | ~1100 行 |
+| **内存占用** | <2MB |
+| **服务器吞吐** | >10K req/s |
+| **请求延迟** | <10ms (典型) |
 
 ---
 
-## 🐛 Troubleshooting
-
-### Build Fails
+## 🧪 测试
 
 ```bash
-cd client/scripts
-./CLEAN.sh
-./generate_keys.sh
-./build_ios.sh
+# 1. 启动服务器
+cd server && go run main.go --port 8080 --domain localhost:8080
+
+# 2. 测试 iOS/macOS（新终端）
+cd clients/ios-macos/Examples
+swift example_macos.swift
+
+# 3. 测试 Android
+cd clients/android
+./gradlew :passgfw:test
+
+# 4. 测试 HarmonyOS
+# 使用 DevEco Studio
 ```
 
-### Keys Not Found
+**完整测试指南：** `clients/TESTING_GUIDE.md`
+
+---
+
+## 🐛 故障排除
+
+### 服务器无法启动
 
 ```bash
-cd client/scripts
-./generate_keys.sh
-```
-
-### Server Won't Start
-
-```bash
-# Check keys
-ls -la client/keys/
-
-# Check port
+# 检查端口占用
 lsof -i :8080
 
-# Use different port
-cd server && go run main.go -port 3000
+# 使用其他端口
+go run main.go --port 3000
 ```
 
-### Private Key Format Error
+### 客户端连接失败
 
-Server auto-supports PKCS1 and PKCS8. If error persists:
+1. 确认服务器正在运行
+2. 检查 URL 配置
+3. Android 模拟器使用 `10.0.2.2` 代替 `localhost`
+
+### 构建失败
 
 ```bash
-cd client/scripts
-./generate_keys.sh
+# iOS/macOS
+cd clients/ios-macos
+swift package clean
+swift build
+
+# Android
+cd clients/android
+./gradlew clean
+./gradlew build
+
+# HarmonyOS
+# DevEco Studio > Build > Clean Project
 ```
 
 ---
 
-## 📊 Performance
+## 🎯 优势
 
-| Metric | Value |
-|--------|-------|
-| iOS Binary | ~164KB (XCFramework) |
-| macOS Binary | ~60KB (Universal Binary) |
-| Android Binary | ~30KB per ABI |
-| RAM Usage | <2MB (iOS/macOS), <1MB (Android) |
-| Server Throughput | 1.2M req/s (Gin) |
-| Request Latency | <10ms (typical) |
+### vs. C++ + JNI/NAPI 方案
 
----
+✅ **无跨语言桥接** - 避免 JNI/NAPI 复杂性  
+✅ **性能更好** - 直接使用平台 API  
+✅ **易于维护** - 各平台独立开发  
+✅ **更小体积** - 无额外运行时  
+✅ **更快开发** - 使用平台最佳实践  
 
-## 🐛 Debugging
+### 平台原生优势
 
-### Quick Setup
+| 平台 | HTTP 库 | JSON | 加密 |
+|------|---------|------|------|
+| iOS/macOS | URLSession | NSJSONSerialization | Security.framework |
+| Android | OkHttp | Gson | java.security |
+| HarmonyOS | @ohos.net.http | JSON.parse | cryptoFramework |
 
-```bash
-./setup_debug.sh
-```
-
-### Debug in IDE
-
-1. Start server: `cd server && go run main.go`
-2. Open `client/firewall_detector.cpp` in IDE
-3. Set breakpoint at line 85 (`GetFinalServer()`)
-4. Press `F5` to start debugging
-5. Select `(lldb) Debug PassGFW Client`
-
-**Key breakpoints:**
-- Line 85: `GetFinalServer()` - Main entry
-- Line 120: `CheckURL()` - URL detection
-- Line 145: `CheckNormalURL()` - Normal URL check
-- Line 185: `CheckListURL()` - List URL check
-
-**Full guide:** See `DEBUG_GUIDE.md`
+**无第三方依赖！**
 
 ---
 
-## 📚 More Information
-
-- **Debug Guide**: `DEBUG_GUIDE.md` - Complete debugging guide
-- **Server**: `server/README.md` - Server documentation
-- **Examples**: `client/examples/README.md` - Usage examples
-- **Changelog**: `CHANGELOG.md` - Version history
-
----
-
-## 📄 License
+## 📄 许可证
 
 MIT License
 
 ---
 
-**Status:** ✅ iOS Production Ready | ⚠️ Android/HarmonyOS Framework Ready  
-**Version:** 1.0.2  
-**Last Updated:** 2025-10-29
+## 🏷️ 版本历史
+
+- **v1.0** (2025-10-30) - 初始发布
+  - ✅ 完整的 3 平台实现
+  - ✅ RSA 加密和签名验证
+  - ✅ 动态 URL 列表支持
+  - ✅ 自动重试机制
+  - ✅ 统一日志系统
+
+---
+
+**状态：** ✅ 所有平台完成并测试  
+**版本：** 1.0.0  
+**最后更新：** 2025-10-30
 
 Made with ❤️ for bypassing firewalls
