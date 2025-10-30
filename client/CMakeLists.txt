@@ -19,6 +19,7 @@ set(COMMON_SOURCES
     ${CONFIG_SOURCE}
     firewall_detector.cpp
     passgfw.cpp
+    logger.cpp
 )
 
 # 公共头文件
@@ -27,6 +28,7 @@ set(COMMON_HEADERS
     http_interface.h
     firewall_detector.h
     passgfw.h
+    logger.h
 )
 
 # 根据平台选择源文件

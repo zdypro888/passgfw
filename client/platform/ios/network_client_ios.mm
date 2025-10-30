@@ -1,4 +1,5 @@
 #import "network_client_ios.h"
+#import "../../logger.h"
 #import <Foundation/Foundation.h>
 #import <Security/Security.h>
 
@@ -88,9 +89,9 @@ HttpResponse NetworkClientIOS::Post(const std::string& url, const std::string& j
         HttpResponse response;
         
         // Debug: Print parameters
-        printf("[DEBUG] Post() called\n");
-        printf("[DEBUG]   URL: %s (length: %zu)\n", url.c_str(), url.length());
-        printf("[DEBUG]   JSON body: %s (length: %zu)\n", json_body.c_str(), json_body.length());
+        LOG_DEBUG("Post() called");
+        LOG_DEBUGF("  URL: %s (length: %zu)", url.c_str(), url.length());
+        LOG_DEBUGF("  JSON body: %s (length: %zu)", json_body.c_str(), json_body.length());
         
         // Create URL
         NSURL* nsURL = [NSURL URLWithString:[NSString stringWithUTF8String:url.c_str()]];
@@ -343,8 +344,21 @@ std::string NetworkClientIOS::ToJson(
         NSMutableDictionary* dict = [NSMutableDictionary dictionary];
         
         for (const auto& pair : data) {
-            NSString* key = [NSString stringWithUTF8String:pair.first.c_str()];
-            NSString* value = [NSString stringWithUTF8String:pair.second.c_str()];
+            // Check for NULL c_str() to prevent crash
+            const char* keyCStr = pair.first.c_str();
+            const char* valueCStr = pair.second.c_str();
+            
+            if (!keyCStr || !valueCStr) {
+                continue; // Skip invalid entries
+            }
+            
+            NSString* key = [NSString stringWithUTF8String:keyCStr];
+            NSString* value = [NSString stringWithUTF8String:valueCStr];
+            
+            if (!key || !value) {
+                continue; // Skip if conversion failed
+            }
+            
             dict[key] = value;
         }
         

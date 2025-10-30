@@ -59,9 +59,10 @@ private:
      * @param url URL to detect
      * @param custom_data Custom data to send with request
      * @param domain Output parameter, store successful domain
+     * @param recursion_depth Current recursion depth (for list# URLs)
      * @return true on success
      */
-    bool CheckURL(const std::string& url, const std::string& custom_data, std::string& domain);
+    bool CheckURL(const std::string& url, const std::string& custom_data, std::string& domain, int recursion_depth = 0);
     
     /**
      * Detect normal URL (POST data, verify signature)
@@ -88,9 +89,21 @@ private:
      * @param url URL to detect (ending with #)
      * @param custom_data Custom data passed to sub-URL checks
      * @param domain Output parameter, store successful domain
+     * @param recursion_depth Current recursion depth
      * @return true on success
      */
-    bool CheckListURL(const std::string& url, const std::string& custom_data, std::string& domain);
+    bool CheckListURL(const std::string& url, const std::string& custom_data, std::string& domain, int recursion_depth);
+    
+    /**
+     * Check a single normal URL once (no retry)
+     * Internal method used by CheckNormalURL for retry logic
+     * 
+     * @param url URL to detect
+     * @param custom_data Custom data to send with request
+     * @param domain Output parameter, store successful domain
+     * @return true on success
+     */
+    bool CheckNormalURLOnce(const std::string& url, const std::string& custom_data, std::string& domain);
     
     /**
      * Extract domain from URL
@@ -110,7 +123,6 @@ private:
     std::vector<std::string> url_list_;
     INetworkClient* network_client_;  // Unified network client
     std::string last_error_;
-    std::string custom_data_;  // Custom data for current detection
 };
 
 } // namespace passgfw

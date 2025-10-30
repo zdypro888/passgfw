@@ -19,8 +19,9 @@ import (
 )
 
 var (
-	privateKey *rsa.PrivateKey
-	port       string
+	privateKey   *rsa.PrivateKey
+	port         string
+	serverDomain string // Real server domain (configured, not from client)
 )
 
 // Request structure
@@ -43,6 +44,7 @@ func main() {
 	// Parse command line flags
 	privateKeyPath := flag.String("private-key", "../client/keys/private_key.pem", "Path to private key")
 	flag.StringVar(&port, "port", "8080", "Server port")
+	flag.StringVar(&serverDomain, "domain", "", "Server domain (e.g., example.com:443)")
 	debug := flag.Bool("debug", false, "Enable debug mode")
 	flag.Parse()
 
@@ -169,8 +171,13 @@ func handlePassGFW(c *gin.Context) {
 	}
 
 	// Determine real server domain based on client data
-	// You can customize this logic
-	realDomain := getRealDomain(c.Request.Host, payload.ClientData)
+	// Use configured domain or fallback to request host
+	configuredDomain := serverDomain
+	if configuredDomain == "" {
+		configuredDomain = c.Request.Host
+		log.Printf("   ⚠️  Using request Host (consider setting --domain flag)")
+	}
+	realDomain := getRealDomain(configuredDomain, payload.ClientData)
 	log.Printf("   Server domain: %s", realDomain)
 
 	// Construct response JSON
@@ -211,10 +218,10 @@ func handlePassGFW(c *gin.Context) {
 	log.Printf("📤 Response sent: %s", string(responseJSON))
 }
 
-// Get real server domain based on request and client data
+// Get real server domain based on configured domain and client data
 // You can customize this logic to route to different backends
-func getRealDomain(requestHost, clientData string) string {
-	// Default: return the request host
+func getRealDomain(configuredDomain, clientData string) string {
+	// Route based on client data
 	// You can add custom logic here based on clientData
 	// For example:
 	// - Route to different CDN based on clientData
@@ -229,8 +236,8 @@ func getRealDomain(requestHost, clientData string) string {
 		return "mobile.example.com:443"
 	}
 
-	// Default: return request host
-	return requestHost
+	// Default: return configured domain
+	return configuredDomain
 }
 
 // Handle /health endpoint
