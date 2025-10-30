@@ -3,7 +3,7 @@ import Foundation
 /// PassGFW - Firewall Detection Library
 /// 
 /// Main entry point for the PassGFW library.
-public class PassGFW {
+public class PassGFWClient {
     private let detector: FirewallDetector
     
     /// Initialize PassGFW with default configuration
@@ -48,4 +48,3 @@ public class PassGFW {
         Logger.shared.minLevel = level
     }
 }
-
