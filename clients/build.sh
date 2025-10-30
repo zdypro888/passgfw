@@ -308,7 +308,10 @@ build_ios() {
     cd ios-macos
     
     if [ "$CLEAN_BUILD" = true ]; then
+        echo "🧹 Cleaning build artifacts..."
         swift package clean
+        echo "✅ Clean complete"
+        echo ""
     fi
     swift build -c release
     echo "✅ iOS/macOS build complete"
@@ -330,11 +333,15 @@ build_android() {
     
     cd android
     if [ "$CLEAN_BUILD" = true ]; then
+        echo "🧹 Cleaning build artifacts..."
         ./gradlew clean
+        echo "✅ Clean complete"
+        echo ""
     fi
     ./gradlew :passgfw:assembleRelease
     
     echo "✅ Android build complete"
+    echo "📦 Output: $(pwd)/passgfw/build/outputs/aar/"
 }
 
 build_harmony() {
