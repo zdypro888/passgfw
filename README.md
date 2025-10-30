@@ -52,34 +52,71 @@ server/                Go 服务器
 
 ## 🚀 快速开始
 
-### 1. 启动服务器
+### 1. 配置构建参数（所有平台）
+
+```bash
+cd clients
+cp build_config.example.json build_config.json
+vim build_config.json  # 填入你的服务器 URLs
+```
+
+配置示例：
+```json
+{
+  "urls": [
+    "https://server1.example.com/passgfw",
+    "https://server2.example.com/passgfw"
+  ],
+  "public_key_path": "../server/keys/public_key.pem"
+}
+```
+
+### 2. 启动服务器
 
 ```bash
 cd server
 go run main.go --port 8080 --domain localhost:8080
 ```
 
-### 2. 测试 iOS/macOS 客户端
+### 3. 构建客户端
 
 ```bash
-cd clients/ios-macos
-swift build
-cd Examples
-swift example_macos.swift
+cd clients
+
+# iOS/macOS（Swift Package）
+./build.sh ios              # 构建并注入配置
+./build.sh ios --clean      # 只清理
+
+# Android（Kotlin/Gradle）
+./build.sh android          # 构建 AAR
+./build.sh android --clean  # 只清理
+
+# HarmonyOS（ArkTS）
+./build.sh harmony          # 更新配置（需 DevEco Studio 构建）
+./build.sh harmony --clean  # 只清理
+
+# 构建所有平台
+./build.sh all
 ```
 
-### 3. 测试 Android 客户端
+### 4. 在项目中使用
 
-```bash
-cd clients/android
-./gradlew :passgfw:build
-```
+#### iOS/macOS（Xcode）
+1. File > Add Package Dependencies > Add Local
+2. 选择 `clients/ios-macos` 目录
+3. 代码中 `import PassGFW` 即可使用
 
-### 4. 测试 HarmonyOS 客户端
+#### Android（Android Studio）
+1. 将 `clients/android/passgfw` 作为模块导入
+2. 或使用生成的 AAR：`clients/android/passgfw/build/outputs/aar/`
 
-使用 DevEco Studio 打开 `clients/harmony/`
+#### HarmonyOS（DevEco Studio）
+1. 打开 `clients/harmony/` 项目
+2. 构建生成 HAR 包
 
-**详细测试指南：** `clients/TESTING_GUIDE.md`
+**详细文档：** 
+- 完整测试指南：`clients/TESTING_GUIDE.md`
+- iOS/macOS 详细说明：`clients/ios-macos/README.md`
 
 ---
 
@@ -125,9 +162,43 @@ openssl rsa -in keys/private_key.pem -pubout -out keys/public_key.pem
 
 ## ⚙️ 配置
 
-### 更新服务器 URL
+### 统一构建配置（推荐）
 
-每个平台的 `Config` 文件：
+使用 `build_config.json` 统一管理所有平台的配置：
+
+```bash
+cd clients
+vim build_config.json
+```
+
+```json
+{
+  "urls": [
+    "https://your-server.com/passgfw",
+    "https://backup.com/passgfw",
+    "https://cdn.com/list.txt#"
+  ],
+  "public_key_path": "../server/keys/public_key.pem",
+  "config": {
+    "request_timeout": 10,
+    "max_retries": 3,
+    "retry_delay": 1.0,
+    "max_list_recursion_depth": 5,
+    "log_level": "INFO"
+  }
+}
+```
+
+然后运行构建脚本：
+```bash
+./build.sh ios      # 自动注入配置到 Swift
+./build.sh android  # 自动注入配置到 Kotlin
+./build.sh harmony  # 自动注入配置到 ArkTS
+```
+
+### 手动更新配置（不推荐）
+
+如果不使用构建脚本，可以手动修改每个平台的 `Config` 文件：
 
 **iOS/macOS (Swift):**
 ```swift

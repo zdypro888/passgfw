@@ -19,9 +19,48 @@
 - Xcode 15.0+
 - Swift 5.9+
 
-## 安装
+## 安装和配置
 
-### Swift Package Manager
+### Step 1: 配置构建参数
+
+```bash
+cd clients
+cp build_config.example.json build_config.json
+vim build_config.json  # 填入你的服务器 URLs
+```
+
+配置文件示例：
+```json
+{
+  "urls": [
+    "https://server1.example.com/passgfw",
+    "https://server2.example.com/passgfw"
+  ],
+  "public_key_path": "../server/keys/public_key.pem"
+}
+```
+
+### Step 2: 构建（可选）
+
+```bash
+cd clients
+./build.sh ios  # 构建并注入配置
+```
+
+> 💡 **提示：** 这步可以跳过，Xcode 会自动构建。但运行后会将 URLs 注入到源码中。
+
+### Step 3: 在 Xcode 中添加本地 Package
+
+1. 打开你的 iOS/macOS 项目（`.xcodeproj`）
+2. 菜单：**File > Add Package Dependencies...**
+3. 点击窗口左下角的 **"Add Local..."**
+4. 选择目录：`/path/to/passgfw/clients/ios-macos`
+5. 点击 **"Add Package"**
+6. 选择要添加的 Target，再次点击 **"Add Package"**
+
+完成！Xcode 会自动编译和链接。
+
+### 其他方式（从 Git 仓库）
 
 在 `Package.swift` 中添加：
 
