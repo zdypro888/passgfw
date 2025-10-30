@@ -299,20 +299,26 @@ update_config_file() {
 
 build_ios() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "📱 Building iOS/macOS..."
+    if [ "$CLEAN_BUILD" = true ]; then
+        echo "🧹 Cleaning iOS/macOS..."
+    else
+        echo "📱 Building iOS/macOS..."
+    fi
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    
-    generate_swift_config
-    update_config_file "ios-macos/Sources/PassGFW/Config.swift" "/tmp/swift_config.txt"
     
     cd ios-macos
     
     if [ "$CLEAN_BUILD" = true ]; then
-        echo "🧹 Cleaning build artifacts..."
+        echo "🧹 Removing build artifacts..."
         swift package clean
-        echo "✅ Clean complete"
-        echo ""
+        rm -rf .build
+        echo "✅ iOS/macOS clean complete"
+        return 0
     fi
+    
+    generate_swift_config
+    update_config_file "Sources/PassGFW/Config.swift" "/tmp/swift_config.txt"
+    
     swift build -c release
     echo "✅ iOS/macOS build complete"
     echo "📦 Output: $(pwd)/.build/release/"
@@ -325,19 +331,25 @@ build_macos() {
 
 build_android() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "🤖 Building Android..."
+    if [ "$CLEAN_BUILD" = true ]; then
+        echo "🧹 Cleaning Android..."
+    else
+        echo "🤖 Building Android..."
+    fi
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
-    generate_kotlin_config
-    update_config_file "android/passgfw/src/main/kotlin/com/passgfw/Config.kt" "/tmp/kotlin_config.txt"
-    
     cd android
+    
     if [ "$CLEAN_BUILD" = true ]; then
-        echo "🧹 Cleaning build artifacts..."
+        echo "🧹 Removing build artifacts..."
         ./gradlew clean
-        echo "✅ Clean complete"
-        echo ""
+        echo "✅ Android clean complete"
+        return 0
     fi
+    
+    generate_kotlin_config
+    update_config_file "passgfw/src/main/kotlin/com/passgfw/Config.kt" "/tmp/kotlin_config.txt"
+    
     ./gradlew :passgfw:assembleRelease
     
     echo "✅ Android build complete"
@@ -346,11 +358,24 @@ build_android() {
 
 build_harmony() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "🔷 Building HarmonyOS..."
+    if [ "$CLEAN_BUILD" = true ]; then
+        echo "🧹 Cleaning HarmonyOS..."
+    else
+        echo "🔷 Building HarmonyOS..."
+    fi
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
+    cd harmony
+    
+    if [ "$CLEAN_BUILD" = true ]; then
+        echo "🧹 Removing build artifacts..."
+        rm -rf entry/build .hvigor build
+        echo "✅ HarmonyOS clean complete"
+        return 0
+    fi
+    
     generate_arkts_config
-    update_config_file "harmony/entry/src/main/ets/passgfw/Config.ets" "/tmp/arkts_config.txt"
+    update_config_file "entry/src/main/ets/passgfw/Config.ets" "/tmp/arkts_config.txt"
     
     echo "⚠️  HarmonyOS requires DevEco Studio to build"
     echo "   Config file updated, please build in DevEco Studio"
@@ -400,11 +425,19 @@ rm -f /tmp/swift_config.txt /tmp/kotlin_config.txt /tmp/arkts_config.txt
 
 echo "✅ Cleanup complete"
 echo ""
-echo "📝 Note: Config files have been updated with URLs from build_config.json"
-echo "   This is normal - these files should contain your real configuration."
-echo ""
+
+if [ "$CLEAN_BUILD" = false ]; then
+    echo "📝 Note: Config files have been updated with URLs from build_config.json"
+    echo "   This is normal - these files should contain your real configuration."
+    echo ""
+fi
+
 echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║   🎉 Build Complete!                                             ║"
+if [ "$CLEAN_BUILD" = true ]; then
+    echo "║   ✅ Clean Complete!                                             ║"
+else
+    echo "║   🎉 Build Complete!                                             ║"
+fi
 echo "╚══════════════════════════════════════════════════════════════════╝"
 echo ""
 
