@@ -8,7 +8,7 @@ class CryptoHelper {
     /// Set public key from PEM string
     func setPublicKey(pem: String) -> Bool {
         // Remove PEM headers and whitespace
-        var keyString = pem
+        let keyString = pem
             .replacingOccurrences(of: "-----BEGIN PUBLIC KEY-----", with: "")
             .replacingOccurrences(of: "-----END PUBLIC KEY-----", with: "")
             .replacingOccurrences(of: "\n", with: "")

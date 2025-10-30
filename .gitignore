@@ -39,3 +39,9 @@
 
 # debug information files
 *.dwo
+
+# Build configuration (use build_config.example.json as template)
+clients/build_config.json
+
+# Server keys (private key should never be committed)
+**/keys/private_key.pem

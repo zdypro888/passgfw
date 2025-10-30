@@ -1,0 +1,21 @@
+{
+  "comment": "PassGFW Build Configuration Template",
+  "comment2": "Copy this file to 'build_config.json' and customize for your environment",
+  
+  "urls": [
+    "https://server1.example.com/passgfw",
+    "https://server2.example.com/passgfw",
+    "https://cdn.example.com/list.txt#"
+  ],
+  
+  "public_key_path": "../server/keys/public_key.pem",
+  
+  "config": {
+    "request_timeout": 10,
+    "max_retries": 3,
+    "retry_delay": 1.0,
+    "max_list_recursion_depth": 5,
+    "log_level": "INFO"
+  }
+}
+
