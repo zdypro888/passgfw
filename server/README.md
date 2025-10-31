@@ -1,352 +1,368 @@
 # PassGFW Server
 
-Go 服务器，用于 PassGFW 客户端验证。
+防火墙检测服务器，用于安全地分发可用服务器域名。
 
 ## 🚀 快速开始
 
-### 1. 生成密钥（首次运行）
+### 基本启动
 
 ```bash
-cd server
-mkdir -p keys
-openssl genrsa -out keys/private_key.pem 2048
-openssl rsa -in keys/private_key.pem -pubout -out keys/public_key.pem
+./passgfw-server \
+  -private-key=./keys/private_key.pem \
+  -domain=example.com:443 \
+  -port=8080
 ```
 
-这会创建：
-- `keys/private_key.pem` - 服务器使用（**勿泄露**）
-- `keys/public_key.pem` - 嵌入客户端
-
-### 2. 启动服务器
+### 安全启动（推荐）
 
 ```bash
-cd server
-go run main.go --port 8080 --domain localhost:8080
+./passgfw-server \
+  -private-key=./keys/private_key.pem \
+  -domain=example.com:443 \
+  -port=8080 \
+  -admin-user=admin \
+  -admin-pass=your-strong-password \
+  -admin-local
 ```
 
-服务器将在 `http://localhost:8080` 启动
+## 📋 命令行参数
 
-### 3. 自定义选项
+### 必需参数
+
+| 参数 | 说明 | 默认值 | 示例 |
+|------|------|--------|------|
+| `-private-key` | 私钥文件路径 | `../client/keys/private_key.pem` | `-private-key=./keys/private_key.pem` |
+| `-domain` | 服务器域名 | 无 | `-domain=example.com:443` |
+
+### 可选参数
+
+| 参数 | 说明 | 默认值 | 示例 |
+|------|------|--------|------|
+| `-port` | 服务器端口 | `8080` | `-port=8080` |
+| `-debug` | 调试模式 | `false` | `-debug` |
+
+### 安全参数 🔐
+
+| 参数 | 说明 | 默认值 | 示例 |
+|------|------|--------|------|
+| `-admin-user` | 管理员用户名 | 空（禁用认证） | `-admin-user=admin` |
+| `-admin-pass` | 管理员密码 | 空 | `-admin-pass=secretpass` |
+| `-admin-local` | 限制仅本地访问管理页面 | `false` | `-admin-local` |
+
+## 🔒 安全配置
+
+### 方案1: HTTP Basic Auth（推荐用于生产环境）
+
+启用用户名和密码认证：
 
 ```bash
-# 自定义端口
-go run main.go --port 3000
-
-# 自定义域名（重要：防止 Host 头欺骗）
-go run main.go --domain your-server.com:8080
-
-# 自定义密钥路径
-go run main.go --private-key /path/to/private.pem
-
-# 所有选项
-go run main.go --port 3000 --domain example.com:3000 --private-key ./keys/private.pem
+./passgfw-server \
+  -private-key=./keys/private_key.pem \
+  -domain=example.com:443 \
+  -admin-user=admin \
+  -admin-pass=strong-password-here
 ```
 
----
+访问管理页面时会弹出登录框。
 
-## 📡 API 端点
+**优点:**
+- ✅ 防止未授权访问
+- ✅ 可以从远程管理
+- ✅ 标准的 HTTP 认证机制
 
-### POST /passgfw
+**缺点:**
+- ⚠️ 需要 HTTPS 才安全（否则密码明文传输）
+- ⚠️ 需要管理密码
 
-主验证端点。
+### 方案2: 限制本地访问（推荐用于开发环境）
 
-**请求：**
-```json
-{
-  "data": "BASE64_ENCRYPTED_JSON"
-}
-```
-
-加密的 JSON 内容：
-```json
-{
-  "nonce": "RANDOM_BASE64_STRING",
-  "client_data": "CUSTOM_CLIENT_DATA"
-}
-```
-
-**响应：**
-```json
-{
-  "data": "{\"nonce\":\"...\",\"server_domain\":\"...\"}",
-  "signature": "BASE64_SIGNATURE"
-}
-```
-
-**流程：**
-1. 客户端生成随机 nonce
-2. 构建 JSON: `{"nonce":"...", "client_data":"..."}`
-3. 用公钥加密 JSON
-4. 服务器用私钥解密
-5. 服务器返回 nonce + server_domain
-6. 服务器用私钥签名响应
-7. 客户端验证签名和 nonce
-
-### GET /health
-
-健康检查端点。
-
-**响应：**
-```json
-{
-  "status": "ok",
-  "server": "PassGFW Server"
-}
-```
-
-### GET /
-
-HTML 页面，显示服务器信息。
-
----
-
-## 🔧 构建
-
-### 开发模式
+仅允许从 localhost 访问管理页面：
 
 ```bash
-# 使用默认设置运行
-go run main.go
-
-# 详细日志模式
-go run main.go --debug
+./passgfw-server \
+  -private-key=./keys/private_key.pem \
+  -domain=example.com:443 \
+  -admin-local
 ```
 
-### 生产环境二进制
+只有 `127.0.0.1`, `::1`, `localhost` 可以访问 `/admin`。
+
+**优点:**
+- ✅ 简单，无需密码
+- ✅ 完全隔离外部访问
+- ✅ 适合开发和本地管理
+
+**缺点:**
+- ⚠️ 无法远程管理
+- ⚠️ 需要 SSH 或本地访问服务器
+
+### 方案3: 双重保护（最安全，推荐用于生产环境）
+
+同时启用用户名密码和本地限制：
 
 ```bash
-# 为当前平台构建
-go build -o passgfw-server
-
-# 运行
-./passgfw-server --port 8080 --domain example.com:8080
+./passgfw-server \
+  -private-key=./keys/private_key.pem \
+  -domain=example.com:443 \
+  -admin-user=admin \
+  -admin-pass=strong-password-here \
+  -admin-local
 ```
 
-### 交叉编译
+**优点:**
+- ✅ 双重认证
+- ✅ 即使在本地网络也需要密码
+- ✅ 最高安全级别
+
+### 方案4: 无认证（仅用于测试，不推荐）
 
 ```bash
-# Linux
-GOOS=linux GOARCH=amd64 go build -o passgfw-server-linux
-
-# macOS (Apple Silicon)
-GOOS=darwin GOARCH=arm64 go build -o passgfw-server-macos-arm64
-
-# macOS (Intel)
-GOOS=darwin GOARCH=amd64 go build -o passgfw-server-macos-x64
-
-# Windows
-GOOS=windows GOARCH=amd64 go build -o passgfw-server.exe
+./passgfw-server \
+  -private-key=./keys/private_key.pem \
+  -domain=example.com:443
 ```
 
----
+**⚠️ 警告:** 管理页面完全公开，任何人都可以访问！
 
-## 🔒 安全注意事项
+**仅适用于:**
+- 本地测试
+- 内网环境
+- 临时使用
 
-1. **私钥保护**：绝不泄露或提交 `private_key.pem`
-2. **HTTPS**：生产环境使用 HTTPS（推荐反向代理）
-3. **速率限制**：生产环境添加速率限制
-4. **防火墙**：限制可信 IP 访问
-5. **域名验证**：使用 `--domain` 参数防止 Host 头欺骗
+## 🌐 API 端点
 
----
+### 公开端点
 
-## 📝 示例：使用 Nginx 部署
+| 端点 | 方法 | 说明 | 认证 |
+|------|------|------|------|
+| `/passgfw` | POST | 防火墙检测接口 | ❌ 无需认证 |
+| `/health` | GET | 健康检查 | ❌ 无需认证 |
+
+### 管理端点（受保护）
+
+| 端点 | 方法 | 说明 | 认证 |
+|------|------|------|------|
+| `/admin` | GET | 管理工具页面 | ✅ 需要认证 |
+| `/api/generate-list` | POST | 生成 URL 列表 | ✅ 需要认证 |
+| `/api/generate-keys` | POST | 生成 RSA 密钥对 | ✅ 需要认证 |
+
+## 🛡️ 安全最佳实践
+
+### 1. 生产环境
+
+```bash
+# 1. 使用强密码
+./passgfw-server \
+  -private-key=./keys/private_key.pem \
+  -domain=example.com:443 \
+  -admin-user=admin \
+  -admin-pass=$(openssl rand -base64 32) \
+  -admin-local
+
+# 2. 使用 systemd 服务
+# 3. 配合 Nginx/Apache 反向代理 + HTTPS
+# 4. 配置防火墙规则
+# 5. 定期更换密码
+# 6. 监控访问日志
+```
+
+### 2. 开发环境
+
+```bash
+# 简单的本地限制即可
+./passgfw-server \
+  -private-key=./keys/private_key.pem \
+  -domain=localhost:8080 \
+  -admin-local \
+  -debug
+```
+
+### 3. 使用 HTTPS 反向代理
+
+建议在生产环境使用 Nginx + Let's Encrypt：
 
 ```nginx
 server {
-    listen 443 ssl;
-    server_name example.com;
+    listen 443 ssl http2;
+    server_name admin.example.com;
     
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
+    ssl_certificate /etc/letsencrypt/live/admin.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/admin.example.com/privkey.pem;
     
-    location /passgfw {
-        proxy_pass http://localhost:8080;
+    location / {
+        proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```
 
----
+这样即使使用 HTTP Basic Auth，密码也会通过 HTTPS 加密传输。
 
-## 🧪 测试
+### 4. 使用环境变量
 
-### 使用客户端测试
-
-最简单的方式是使用客户端：
+不要在命令行直接暴露密码：
 
 ```bash
-# iOS/macOS
-cd ../clients/ios-macos/Examples
-swift example_macos.swift
+# 设置环境变量
+export ADMIN_USER="admin"
+export ADMIN_PASS="your-secret-password"
 
-# Android
-cd ../clients/android
-./gradlew :passgfw:build
-
-# HarmonyOS
-# 使用 DevEco Studio 打开 clients/harmony/
+# 从环境变量读取（需要修改代码支持）
+# 或者使用配置文件
 ```
 
-### 使用 curl 测试
+### 5. IP 白名单（防火墙层面）
 
 ```bash
-# 健康检查
-curl http://localhost:8080/health
-
-# 主页
-curl http://localhost:8080/
+# 使用 iptables 限制访问
+iptables -A INPUT -p tcp --dport 8080 -s 192.168.1.0/24 -j ACCEPT
+iptables -A INPUT -p tcp --dport 8080 -j DROP
 ```
 
----
+## 📊 启动日志示例
 
-## 📊 日志
-
-服务器会记录所有请求：
+### 启用认证
 
 ```
 🚀 PassGFW Server Starting...
-✅ Private key loaded from keys/private_key.pem
-✅ Server domain set to: localhost:8080
+==============================
+✅ Private key loaded: ./keys/private_key.pem
 🌐 Server listening on :8080
+   Endpoints:
+   - POST http://localhost:8080/passgfw
+   - GET  http://localhost:8080/health
+   - GET  http://localhost:8080/admin (管理工具)
 
-📥 Request from 127.0.0.1:51234
-✅ Decrypted nonce: AbCdEf123456...
-✅ Client data: test-client
-📤 Response sent successfully: localhost:8080
+🔐 Admin authentication: ENABLED
+   Username: admin
+   Password: st***
+🔒 Admin access: LOCALHOST ONLY
 ```
 
----
+### 未启用认证（警告）
 
-## 🐳 Docker（可选）
-
-```dockerfile
-FROM golang:1.21-alpine
-
-WORKDIR /app
-COPY . .
-RUN go build -o passgfw-server
-
-EXPOSE 8080
-CMD ["./passgfw-server", "--port", "8080"]
 ```
+🚀 PassGFW Server Starting...
+==============================
+✅ Private key loaded: ./keys/private_key.pem
+🌐 Server listening on :8080
+   Endpoints:
+   - POST http://localhost:8080/passgfw
+   - GET  http://localhost:8080/health
+   - GET  http://localhost:8080/admin (管理工具)
+
+⚠️  Admin authentication: DISABLED (use -admin-user and -admin-pass to enable)
+⚠️  Admin access: ALL IPs (use -admin-local to restrict)
+```
+
+## 🔍 访问日志
+
+启用认证后，每次访问管理页面都会记录：
+
+```
+✅ Admin authenticated: admin (IP: 127.0.0.1)
+❌ Admin authentication failed: invalid credentials (IP: 192.168.1.100)
+❌ Admin access denied: not from localhost (IP: 8.8.8.8)
+```
+
+## 🆘 常见问题
+
+### Q: 忘记管理员密码怎么办？
+
+A: 重启服务器时使用新密码即可：
 
 ```bash
-docker build -t passgfw-server .
-docker run -p 8080:8080 \
-  -v ./keys:/app/keys \
-  -e DOMAIN=example.com:8080 \
-  passgfw-server
+./passgfw-server -admin-user=admin -admin-pass=new-password
 ```
 
----
+### Q: 如何在生产环境使用？
 
-## 📦 依赖
+A: 推荐配置：
 
-- `github.com/gin-gonic/gin` - 高性能 HTTP 框架
+1. 使用 systemd 服务
+2. 启用 `-admin-user` 和 `-admin-pass`
+3. 启用 `-admin-local`
+4. 使用 SSH 隧道访问管理页面
+5. 或者配置 Nginx HTTPS 反向代理
 
-**为什么选择 Gin？**
-- 🚀 高性能（比某些替代品快 40 倍）
-- 📝 简洁优雅的 API
-- ✅ 内置验证
-- 🔧 中间件支持
-- 📊 流行且维护良好
+### Q: 如何通过 SSH 隧道访问？
 
-安装依赖：
-```bash
-go mod download
-```
-
----
-
-## ⚙️ 配置
-
-所有配置通过命令行参数：
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `--port` | `8080` | 服务器端口 |
-| `--domain` | (请求的 Host) | 服务器域名（推荐设置） |
-| `--private-key` | `keys/private_key.pem` | 私钥路径 |
-
-**重要：** 设置 `--domain` 参数以防止 Host 头欺骗攻击。
-
----
-
-## 📋 URL 列表文件
-
-### 创建 URL 列表
-
-客户端将以 `#` 结尾的 URL 视为**列表文件**。创建列表文件：
-
-**格式 1：带 `*GFW*` 标记（推荐用于云存储）**
-
-```
-*GFW*
-https://server1.example.com/passgfw|https://server2.example.com/passgfw|https://server3.example.com/passgfw
-*GFW*
-```
-
-即使嵌入在 HTML 中也能工作（如 Dropbox、Google Drive 预览页）。
-
-**格式 2：逐行列表（简单文本文件）**
-
-```
-https://server1.example.com/passgfw
-https://server2.example.com/passgfw
-https://server3.example.com/passgfw
-```
-
-### 部署 URL 列表
-
-**选项 1：云存储（推荐）**
-
-1. 创建 `servers.txt` 包含你的 URL
-2. 上传到 Dropbox、Google Drive、OneDrive 等
-3. 获取公共分享链接
-4. 添加到客户端配置（带 `#` 后缀）：
-   ```swift
-   "https://dropbox.com/s/abc123/servers.txt#"
-   ```
-
-**选项 2：静态文件服务器**
+A: 服务器启用 `-admin-local` 后：
 
 ```bash
-# 使用 nginx 服务
-location /list.txt {
-    root /var/www;
-    add_header Access-Control-Allow-Origin *;
-}
+# 本地执行
+ssh -L 8080:localhost:8080 user@server-ip
+
+# 然后访问本地
+http://localhost:8080/admin
 ```
 
-**选项 3：CDN**
+### Q: 密码会被记录到日志吗？
 
-上传到 CDN（Cloudflare、AWS CloudFront 等）实现全球分发。
+A: 不会。密码只会显示前2个字符 + `***`，例如 `st***`。
 
-### 优势
+### Q: 可以使用配置文件吗？
 
-- ✅ **无需重新构建客户端** 即可添加/删除服务器
-- ✅ **动态更新** - 随时更新文件
-- ✅ **冗余** - 一个列表中有多个服务器
-- ✅ **云存储** - 使用免费托管服务
-- ✅ **HTML 安全** - 即使在预览页面也能工作
+A: 当前版本使用命令行参数。可以创建一个启动脚本：
 
----
+```bash
+#!/bin/bash
+./passgfw-server \
+  -private-key=./keys/private_key.pem \
+  -domain=example.com:443 \
+  -port=8080 \
+  -admin-user=admin \
+  -admin-pass="$ADMIN_PASSWORD" \
+  -admin-local
+```
 
-## 🔗 集成
+## 📝 示例：Systemd 服务
 
-服务器设计用于配合：
-- **iOS/macOS Client**: Swift 实现
-- **Android Client**: Kotlin 实现
-- **HarmonyOS Client**: ArkTS 实现
+创建 `/etc/systemd/system/passgfw.service`:
 
-所有客户端使用相同的验证协议。
+```ini
+[Unit]
+Description=PassGFW Server
+After=network.target
 
----
+[Service]
+Type=simple
+User=passgfw
+WorkingDirectory=/opt/passgfw
+Environment="ADMIN_PASS=your-secret-password"
+ExecStart=/opt/passgfw/passgfw-server \
+  -private-key=/opt/passgfw/keys/private_key.pem \
+  -domain=example.com:443 \
+  -port=8080 \
+  -admin-user=admin \
+  -admin-pass=${ADMIN_PASS} \
+  -admin-local
+Restart=always
+RestartSec=5
 
-**状态**: ✅ 生产就绪  
-**版本**: 1.0.0  
-**许可证**: MIT
+[Install]
+WantedBy=multi-user.target
+```
+
+启动服务：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable passgfw
+sudo systemctl start passgfw
+sudo systemctl status passgfw
+```
+
+## 🔐 安全检查清单
+
+部署前请确认：
+
+- [ ] 已启用 `-admin-user` 和 `-admin-pass`
+- [ ] 密码足够强（至少16字符，包含大小写字母、数字、符号）
+- [ ] 启用了 `-admin-local` 或配置了防火墙规则
+- [ ] 使用 HTTPS 反向代理（如果需要远程访问）
+- [ ] 私钥文件权限正确（600 或 400）
+- [ ] 服务以非 root 用户运行
+- [ ] 配置了访问日志监控
+- [ ] 定期备份私钥和配置

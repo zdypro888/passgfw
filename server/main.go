@@ -22,6 +22,9 @@ var (
 	privateKey   *rsa.PrivateKey
 	port         string
 	serverDomain string // Real server domain (configured, not from client)
+	adminUser    string // Admin username for /admin access
+	adminPass    string // Admin password for /admin access
+	adminLocal   bool   // Restrict admin access to localhost only
 )
 
 // Request structure
@@ -55,6 +58,9 @@ func main() {
 	privateKeyPath := flag.String("private-key", "../client/keys/private_key.pem", "Path to private key")
 	flag.StringVar(&port, "port", "8080", "Server port")
 	flag.StringVar(&serverDomain, "domain", "", "Server domain (e.g., example.com:443)")
+	flag.StringVar(&adminUser, "admin-user", "", "Admin username (leave empty to disable admin auth)")
+	flag.StringVar(&adminPass, "admin-pass", "", "Admin password")
+	flag.BoolVar(&adminLocal, "admin-local", false, "Restrict admin access to localhost only")
 	debug := flag.Bool("debug", false, "Enable debug mode")
 	flag.Parse()
 
@@ -79,9 +85,11 @@ func main() {
 	// Setup routes
 	router.POST("/passgfw", handlePassGFW)
 	router.GET("/health", handleHealth)
-	router.GET("/admin", handleAdminPage)
-	router.POST("/api/generate-list", handleGenerateList)
-	router.POST("/api/generate-keys", handleGenerateKeys)
+	
+	// Admin routes (protected)
+	router.GET("/admin", adminAuth(), handleAdminPage)
+	router.POST("/api/generate-list", adminAuth(), handleGenerateList)
+	router.POST("/api/generate-keys", adminAuth(), handleGenerateKeys)
 
 	// Start server
 	addr := ":" + port
@@ -91,11 +99,74 @@ func main() {
 	log.Printf("   - POST http://localhost:%s/passgfw", port)
 	log.Printf("   - GET  http://localhost:%s/health", port)
 	log.Printf("   - GET  http://localhost:%s/admin (管理工具)", port)
+	
+	// Admin security info
+	if adminUser != "" && adminPass != "" {
+		log.Printf("")
+		log.Printf("🔐 Admin authentication: ENABLED")
+		log.Printf("   Username: %s", adminUser)
+		log.Printf("   Password: %s", maskPassword(adminPass))
+	} else {
+		log.Printf("")
+		log.Printf("⚠️  Admin authentication: DISABLED (use -admin-user and -admin-pass to enable)")
+	}
+	
+	if adminLocal {
+		log.Printf("🔒 Admin access: LOCALHOST ONLY")
+	} else {
+		log.Printf("⚠️  Admin access: ALL IPs (use -admin-local to restrict)")
+	}
+	
 	log.Printf("")
 
 	if err := router.Run(addr); err != nil {
 		log.Fatalf("❌ Server error: %v", err)
 	}
+}
+
+// adminAuth middleware for protecting admin endpoints
+func adminAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Check localhost restriction
+		if adminLocal {
+			clientIP := c.ClientIP()
+			if clientIP != "127.0.0.1" && clientIP != "::1" && clientIP != "localhost" {
+				log.Printf("❌ Admin access denied: not from localhost (IP: %s)", clientIP)
+				c.JSON(http.StatusForbidden, ErrorResponse{
+					Error: "Admin access is restricted to localhost only",
+				})
+				c.Abort()
+				return
+			}
+		}
+		
+		// Check HTTP Basic Auth
+		if adminUser != "" && adminPass != "" {
+			user, pass, hasAuth := c.Request.BasicAuth()
+			
+			if !hasAuth || user != adminUser || pass != adminPass {
+				log.Printf("❌ Admin authentication failed: invalid credentials (IP: %s)", c.ClientIP())
+				c.Header("WWW-Authenticate", `Basic realm="PassGFW Admin"`)
+				c.JSON(http.StatusUnauthorized, ErrorResponse{
+					Error: "Authentication required",
+				})
+				c.Abort()
+				return
+			}
+			
+			log.Printf("✅ Admin authenticated: %s (IP: %s)", user, c.ClientIP())
+		}
+		
+		c.Next()
+	}
+}
+
+// maskPassword masks password for logging
+func maskPassword(password string) string {
+	if len(password) <= 2 {
+		return "***"
+	}
+	return password[:2] + "***"
 }
 
 // Load RSA private key from file
