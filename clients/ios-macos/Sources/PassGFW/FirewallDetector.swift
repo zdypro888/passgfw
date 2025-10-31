@@ -282,8 +282,37 @@ class FirewallDetector {
         return nil
     }
     
-    /// Parse URL entries from JSON content (new format)
+    /// Parse URL entries from content
+    /// Supports:
+    /// 1. *PGFW*base64(URLEntry[] JSON)*PGFW* format (preferred, can embed anywhere)
+    /// 2. Direct URLEntry[] JSON array format
+    /// 3. Legacy {"urls": [...]} format
     private func parseURLEntriesJSON(content: String) -> [URLEntry]? {
+        // Try to extract *PGFW*base64*PGFW* format first
+        if let extracted = extractPGFWContent(from: content) {
+            Logger.shared.debug("Found *PGFW* marker, extracted base64 length: \(extracted.count)")
+            
+            // Decode base64
+            guard let decodedData = Data(base64Encoded: extracted),
+                  let decodedString = String(data: decodedData, encoding: .utf8) else {
+                Logger.shared.debug("Failed to decode base64 content")
+                return nil
+            }
+            
+            Logger.shared.debug("Decoded PGFW content: \(decodedString.prefix(200))...")
+            
+            // Parse as URLEntry[] JSON array
+            if let entries = parseURLEntryArray(json: decodedString) {
+                return entries
+            }
+        }
+        
+        // Fallback 1: Try to parse as direct URLEntry[] JSON array
+        if let entries = parseURLEntryArray(json: content) {
+            return entries
+        }
+        
+        // Fallback 2: Try legacy {"urls": [...]} format
         guard let data = content.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let urlsArray = json["urls"] as? [[String: String]] else {
@@ -293,6 +322,38 @@ class FirewallDetector {
         var entries: [URLEntry] = []
         for urlDict in urlsArray {
             if let method = urlDict["method"], let url = urlDict["url"] {
+                entries.append(URLEntry(method: method, url: url))
+            }
+        }
+        
+        return entries.isEmpty ? nil : entries
+    }
+    
+    /// Extract content between *PGFW* markers
+    private func extractPGFWContent(from text: String) -> String? {
+        let startMarker = "*PGFW*"
+        let endMarker = "*PGFW*"
+        
+        guard let startRange = text.range(of: startMarker),
+              let endRange = text.range(of: endMarker, range: startRange.upperBound..<text.endIndex) else {
+            return nil
+        }
+        
+        let content = String(text[startRange.upperBound..<endRange.lowerBound])
+        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
+    /// Parse URLEntry[] JSON array
+    private func parseURLEntryArray(json: String) -> [URLEntry]? {
+        guard let data = json.data(using: .utf8),
+              let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return nil
+        }
+        
+        var entries: [URLEntry] = []
+        for dict in array {
+            if let method = dict["method"] as? String,
+               let url = dict["url"] as? String {
                 entries.append(URLEntry(method: method, url: url))
             }
         }

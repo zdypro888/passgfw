@@ -296,9 +296,34 @@ class FirewallDetector {
     }
     
     /**
-     * Parse URL entries from JSON content (new format)
+     * Parse URL entries from content
+     * Supports:
+     * 1. *PGFW*base64(URLEntry[] JSON)*PGFW* format (preferred, can embed anywhere)
+     * 2. Direct URLEntry[] JSON array format
+     * 3. Legacy {"urls": [...]} format
      */
     private fun parseURLEntriesJSON(content: String): List<URLEntry>? {
+        // Try to extract *PGFW*base64*PGFW* format first
+        extractPGFWContent(content)?.let { extracted ->
+            Logger.debug("Found *PGFW* marker, extracted base64 length: ${extracted.length}")
+            
+            // Decode base64
+            try {
+                val decodedBytes = Base64.decode(extracted, Base64.DEFAULT)
+                val decodedString = String(decodedBytes, Charsets.UTF_8)
+                Logger.debug("Decoded PGFW content: ${decodedString.take(200)}...")
+                
+                // Parse as URLEntry[] JSON array
+                parseURLEntryArray(decodedString)?.let { return it }
+            } catch (e: Exception) {
+                Logger.debug("Failed to decode base64 content: ${e.message}")
+            }
+        }
+        
+        // Fallback 1: Try to parse as direct URLEntry[] JSON array
+        parseURLEntryArray(content)?.let { return it }
+        
+        // Fallback 2: Try legacy {"urls": [...]} format
         return try {
             val gson = Gson()
             val json = gson.fromJson(content, Map::class.java) as? Map<*, *>
@@ -306,6 +331,45 @@ class FirewallDetector {
             
             urlsArray?.mapNotNull { urlDict ->
                 (urlDict as? Map<*, *>)?.let {
+                    val method = it["method"] as? String
+                    val url = it["url"] as? String
+                    if (method != null && url != null) {
+                        URLEntry(method, url)
+                    } else null
+                }
+            }?.takeIf { it.isNotEmpty() }
+        } catch (e: Exception) {
+            null
+        }
+    }
+    
+    /**
+     * Extract content between *PGFW* markers
+     */
+    private fun extractPGFWContent(text: String): String? {
+        val startMarker = "*PGFW*"
+        val endMarker = "*PGFW*"
+        
+        val startIndex = text.indexOf(startMarker)
+        if (startIndex == -1) return null
+        
+        val contentStart = startIndex + startMarker.length
+        val endIndex = text.indexOf(endMarker, contentStart)
+        if (endIndex == -1) return null
+        
+        return text.substring(contentStart, endIndex).trim()
+    }
+    
+    /**
+     * Parse URLEntry[] JSON array
+     */
+    private fun parseURLEntryArray(json: String): List<URLEntry>? {
+        return try {
+            val gson = Gson()
+            val array = gson.fromJson(json, List::class.java) as? List<*>
+            
+            array?.mapNotNull { item ->
+                (item as? Map<*, *>)?.let {
                     val method = it["method"] as? String
                     val url = it["url"] as? String
                     if (method != null && url != null) {
