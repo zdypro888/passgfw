@@ -189,13 +189,14 @@ func handlePassGFW(c *gin.Context) {
 	realDomain := getRealDomain(configuredDomain, payload.ClientData)
 	log.Printf("   Server domain: %s", realDomain)
 
-	// Construct response JSON (using new field names: random + domain)
-	responsePayload := map[string]string{
-		"random": payload.Nonce,
-		"domain": realDomain,
+	// Construct response object (without signature first)
+	response := PassGFWResponse{
+		Random: payload.Nonce,
+		Domain: realDomain,
 	}
 
-	responseJSON, err := json.Marshal(responsePayload)
+	// Marshal response (without signature) to JSON for signing
+	responseJSON, err := json.Marshal(response)
 	if err != nil {
 		log.Printf("❌ Failed to marshal response JSON: %v", err)
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
@@ -217,13 +218,10 @@ func handlePassGFW(c *gin.Context) {
 
 	signatureBase64 := base64.StdEncoding.EncodeToString(signature)
 
-	// Send response
-	resp := PassGFWResponse{
-		Data:      string(responseJSON),
-		Signature: signatureBase64,
-	}
+	// Add signature to response
+	response.Signature = signatureBase64
 
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, response)
 	log.Printf("📤 Response sent: %s", string(responseJSON))
 }
 
