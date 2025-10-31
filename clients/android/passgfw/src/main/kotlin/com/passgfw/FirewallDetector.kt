@@ -8,14 +8,32 @@ import kotlinx.coroutines.delay
  * Firewall Detector - Core detection logic
  */
 class FirewallDetector {
-    private var urlList: MutableList<URLEntry> = Config.getBuiltinURLs().toMutableList()
+    private var urlList: MutableList<URLEntry>
     private val networkClient = NetworkClient()
     private val cryptoHelper = CryptoHelper()
     private var lastError: String? = null
     
     init {
+        // Load builtin URLs + stored URLs
+        val allURLs = Config.getBuiltinURLs().toMutableList()
+        val storedURLs = try {
+            URLStorageManager.getInstance().loadStoredURLs()
+        } catch (e: Exception) {
+            Logger.warning("URLStorageManager not initialized yet: ${e.message}")
+            emptyList()
+        }
+        
+        if (storedURLs.isNotEmpty()) {
+            Logger.info("Loaded ${storedURLs.size} stored URLs from local file")
+            allURLs.addAll(storedURLs)
+        }
+        
+        urlList = allURLs
+        
         // Initialize crypto with public key
         cryptoHelper.setPublicKey(Config.getPublicKey())
+        
+        Logger.debug("Total URLs loaded: ${urlList.size} (builtin: ${Config.getBuiltinURLs().size}, stored: ${storedURLs.size})")
     }
     
     /**
@@ -86,6 +104,40 @@ class FirewallDetector {
         return when (entry.method.lowercase()) {
             "api" -> checkAPIURL(entry.url, customData)
             "file" -> checkFileURL(entry.url, customData, recursionDepth)
+            "store" -> {
+                // Store this URL to local storage for permanent use
+                Logger.info("Storing URL to local storage: ${entry.url}")
+                try {
+                    val manager = URLStorageManager.getInstance()
+                    if (manager.addURL(URLEntry(method = "api", url = entry.url))) {
+                        Logger.info("Successfully stored URL: ${entry.url}")
+                        // After storing, check it as an API URL
+                        checkAPIURL(entry.url, customData)
+                    } else {
+                        Logger.error("Failed to store URL: ${entry.url}")
+                        null
+                    }
+                } catch (e: Exception) {
+                    Logger.error("URLStorageManager not available: ${e.message}")
+                    null
+                }
+            }
+            "remove" -> {
+                // Remove this URL from local storage
+                Logger.info("Removing URL from local storage: ${entry.url}")
+                try {
+                    val manager = URLStorageManager.getInstance()
+                    if (manager.removeURL(entry.url)) {
+                        Logger.info("Successfully removed URL: ${entry.url}")
+                    } else {
+                        Logger.warning("Failed to remove URL (may not exist): ${entry.url}")
+                    }
+                } catch (e: Exception) {
+                    Logger.error("URLStorageManager not available: ${e.message}")
+                }
+                // Don't check this URL, just skip it
+                null
+            }
             else -> {
                 lastError = "Unknown method: ${entry.method}"
                 Logger.error("Unknown method '${entry.method}' for URL: ${entry.url}")

@@ -121,8 +121,8 @@ http://server3.example.com:8080/passgfw
 
 ```typescript
 interface URLEntry {
-  method: "api" | "file";  // 方法类型
-  url: string;             // URL 地址
+  method: "api" | "file" | "store" | "remove";  // 方法类型
+  url: string;                                   // URL 地址
 }
 ```
 
@@ -137,6 +137,18 @@ interface URLEntry {
   - 可以包含任何上述格式的列表
   - 支持递归（有深度限制）
   - 不需要签名
+
+- **`store`**: ⭐ **永久存储URL到本地** ⭐
+  - 将此 URL 保存到本地配置文件
+  - 下次启动自动加载
+  - 存储后会作为 API URL 进行检测
+  - 用于动态添加新服务器而无需更新客户端
+
+- **`remove`**: 🗑️ **从本地删除URL** 🗑️
+  - 从本地配置文件删除指定 URL
+  - 立即生效
+  - 不会检测此 URL
+  - 用于移除失效的服务器
 
 ---
 
@@ -242,6 +254,138 @@ PassGFW 客户端按以下顺序尝试解析：
 5. **定期更新列表**
    - 使用 file method 提供动态列表
    - 允许在不更新客户端的情况下添加新服务器
+
+---
+
+## 动态URL管理（store/remove）
+
+PassGFW 支持动态添加和删除URL，无需重新安装客户端。
+
+### Store Method - 永久保存URL
+
+当客户端遇到 `method: "store"` 的URL时，会将其保存到本地配置文件中，下次启动自动加载。
+
+#### 使用场景
+
+1. **动态添加新服务器**
+   - 在列表文件中添加 `{"method":"store","url":"https://new-server.com/passgfw"}`
+   - 客户端检测到后会永久保存
+   - 下次启动无需再次下载
+
+2. **分发备用服务器**
+   - 主服务器返回的列表中包含 store URL
+   - 客户端自动收集并保存
+   - 增加可用服务器数量
+
+#### 示例
+
+```json
+[
+  {"method":"api","url":"https://main-server.com/passgfw"},
+  {"method":"store","url":"https://backup1.com/passgfw"},
+  {"method":"store","url":"https://backup2.com/passgfw"}
+]
+```
+
+客户端处理：
+1. 检测 `main-server.com`
+2. 遇到 `backup1.com` 的 store，保存到本地并检测
+3. 遇到 `backup2.com` 的 store，保存到本地并检测
+4. 下次启动时，自动加载 backup1 和 backup2
+
+### Remove Method - 删除URL
+
+当客户端遇到 `method: "remove"` 的URL时，会从本地配置文件中删除该URL。
+
+#### 使用场景
+
+1. **移除失效服务器**
+   - 服务器已下线或被封锁
+   - 通过列表分发 remove 指令
+   - 客户端自动清理
+
+2. **URL迁移**
+   - 旧URL需要废弃
+   - 新URL使用 store 添加
+   - 旧URL使用 remove 删除
+
+#### 示例
+
+```json
+[
+  {"method":"remove","url":"https://old-server.com/passgfw"},
+  {"method":"store","url":"https://new-server.com/passgfw"}
+]
+```
+
+客户端处理：
+1. 遇到 `old-server.com` 的 remove，从本地删除（如果存在）
+2. 遇到 `new-server.com` 的 store，保存到本地并检测
+
+### 本地存储位置
+
+- **iOS**: `~/Documents/passgfw_urls.json`
+- **macOS**: `~/Library/Application Support/PassGFW/passgfw_urls.json`
+- **Android**: `/data/data/[package]/files/passgfw_urls.json`
+- **HarmonyOS**: Preferences 存储
+
+### 初始化（Android）
+
+Android 需要在应用启动时初始化 URLStorageManager：
+
+```kotlin
+import com.passgfw.URLStorageManager
+
+class MyApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        // 初始化 URLStorageManager
+        URLStorageManager.initialize(this)
+    }
+}
+```
+
+iOS/macOS 会自动初始化，无需额外代码。
+
+### 完整示例：服务器迁移
+
+假设你要将服务器从 `old.com` 迁移到 `new.com`，并添加两个新的备用服务器：
+
+**1. 创建迁移列表：**
+
+```json
+[
+  {"method":"remove","url":"https://old.com/passgfw"},
+  {"method":"store","url":"https://new.com/passgfw"},
+  {"method":"store","url":"https://backup1.com/passgfw"},
+  {"method":"store","url":"https://backup2.com/passgfw"}
+]
+```
+
+**2. 生成 *PGFW* 格式：**
+
+使用管理工具（访问服务器的 `/admin` 页面）生成：
+
+```
+*PGFW*W3sibWV0aG9kIjoicmVtb3ZlIiwidXJsIjoiaHR0cHM6Ly9vbGQuY29tL3Bhc3NnZncifSx7Im1ldGhvZCI6InN0b3JlIiwidXJsIjoiaHR0cHM6Ly9uZXcuY29tL3Bhc3NnZncifSx7Im1ldGhvZCI6InN0b3JlIiwidXJsIjoiaHR0cHM6Ly9iYWNrdXAxLmNvbS9wYXNzZ2Z3In0seyJtZXRob2QiOiJzdG9yZSIsInVybCI6Imh0dHBzOi8vYmFja3VwMi5jb20vcGFzc2dmdyJ9XQ==*PGFW*
+```
+
+**3. 部署到可访问的位置：**
+
+```html
+<!-- 嵌入到静态HTML -->
+<!--
+*PGFW*W3sibWV0...base64...XQ==*PGFW*
+-->
+```
+
+**4. 客户端行为：**
+
+- 从 file URL 获取到这个列表
+- 删除 `old.com`（如果本地有存储）
+- 保存 `new.com`, `backup1.com`, `backup2.com` 到本地
+- 检测新服务器是否可用
+- 下次启动时，使用：**内置URLs** + `new.com` + `backup1.com` + `backup2.com`
 
 ---
 

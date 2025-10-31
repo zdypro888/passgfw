@@ -8,12 +8,23 @@ class FirewallDetector {
     private var lastError: String?
     
     init() {
-        self.urlList = Config.getBuiltinURLs()
+        // Load builtin URLs + stored URLs
+        var allURLs = Config.getBuiltinURLs()
+        let storedURLs = URLStorageManager.shared.loadStoredURLs()
+        
+        if !storedURLs.isEmpty {
+            Logger.shared.info("Loaded \(storedURLs.count) stored URLs from local file")
+            allURLs.append(contentsOf: storedURLs)
+        }
+        
+        self.urlList = allURLs
         self.networkClient = NetworkClient()
         self.cryptoHelper = CryptoHelper()
         
         // Initialize crypto with public key
         _ = cryptoHelper.setPublicKey(pem: Config.getPublicKey())
+        
+        Logger.shared.debug("Total URLs loaded: \(urlList.count) (builtin: \(Config.getBuiltinURLs().count), stored: \(storedURLs.count))")
     }
     
     /// Get final server domain (main entry point)
@@ -78,6 +89,27 @@ class FirewallDetector {
             return await checkAPIURL(entry.url, customData: customData)
         case "file":
             return await checkFileURL(entry.url, customData: customData, recursionDepth: recursionDepth)
+        case "store":
+            // Store this URL to local storage for permanent use
+            Logger.shared.info("Storing URL to local storage: \(entry.url)")
+            if URLStorageManager.shared.addURL(URLEntry(method: "api", url: entry.url)) {
+                Logger.shared.info("Successfully stored URL: \(entry.url)")
+                // After storing, check it as an API URL
+                return await checkAPIURL(entry.url, customData: customData)
+            } else {
+                Logger.shared.error("Failed to store URL: \(entry.url)")
+                return nil
+            }
+        case "remove":
+            // Remove this URL from local storage
+            Logger.shared.info("Removing URL from local storage: \(entry.url)")
+            if URLStorageManager.shared.removeURL(entry.url) {
+                Logger.shared.info("Successfully removed URL: \(entry.url)")
+            } else {
+                Logger.shared.warning("Failed to remove URL (may not exist): \(entry.url)")
+            }
+            // Don't check this URL, just skip it
+            return nil
         default:
             lastError = "Unknown method: \(entry.method)"
             Logger.shared.error("Unknown method '\(entry.method)' for URL: \(entry.url)")

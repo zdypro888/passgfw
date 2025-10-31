@@ -578,6 +578,8 @@ func getAdminHTML() string {
                         <select class="method-select">
                             <option value="api">API</option>
                             <option value="file">File</option>
+                            <option value="store">Store (永久保存)</option>
+                            <option value="remove">Remove (删除)</option>
                         </select>
                         <input type="text" class="url-input" placeholder="https://example.com/passgfw" value="https://server1.example.com/passgfw">
                         <button onclick="removeURLEntry(this)">删除</button>
@@ -649,6 +651,8 @@ func getAdminHTML() string {
                 <select class="method-select">
                     <option value="api">API</option>
                     <option value="file">File</option>
+                    <option value="store">Store (永久保存)</option>
+                    <option value="remove">Remove (删除)</option>
                 </select>
                 <input type="text" class="url-input" placeholder="https://example.com/passgfw">
                 <button onclick="removeURLEntry(this)">删除</button>
