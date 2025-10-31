@@ -30,9 +30,11 @@ type PassGFWRequest struct {
 }
 
 // Response structure
+// The "data" field contains a JSON string with server response:
+// {"random": "<original_nonce>", "domain": "<server_domain>"}
 type PassGFWResponse struct {
-	Data      string `json:"data"`      // Decrypted data
-	Signature string `json:"signature"` // Base64 encoded signature
+	Data      string `json:"data"`      // JSON string: {"random": "...", "domain": "..."}
+	Signature string `json:"signature"` // Base64 encoded RSA-SHA256 signature of data
 }
 
 // Error response structure
