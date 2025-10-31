@@ -22,18 +22,19 @@ class PassGFW {
     
     /**
      * Set the URL list to check
-     * @param urls List of URLs to check
+     * @param entries List of URL entries to check
      */
-    fun setURLList(urls: List<String>) {
-        detector.setURLList(urls)
+    fun setURLList(entries: List<URLEntry>) {
+        detector.setURLList(entries)
     }
     
     /**
-     * Add a URL to the check list
+     * Add a URL entry to the check list
+     * @param method Method type ("api" or "file")
      * @param url URL to add
      */
-    fun addURL(url: String) {
-        detector.addURL(url)
+    fun addURL(method: String, url: String) {
+        detector.addURL(method, url)
     }
     
     /**

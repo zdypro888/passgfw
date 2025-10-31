@@ -1,6 +1,14 @@
 package com.passgfw
 
 /**
+ * URL Entry with method and URL
+ */
+data class URLEntry(
+    val method: String,  // "api" or "file"
+    val url: String
+)
+
+/**
  * Configuration for PassGFW
  */
 object Config {
@@ -9,9 +17,9 @@ object Config {
      * Get built-in URL list
      * These URLs are generated during build from build_config.json
      */
-    fun getBuiltinURLs(): List<String> {
+    fun getBuiltinURLs(): List<URLEntry> {
         return listOf(
-            "http://localhost:8080/passgfw"
+            URLEntry(method = "api", url = "http://localhost:8080/passgfw")
         )
     }
     

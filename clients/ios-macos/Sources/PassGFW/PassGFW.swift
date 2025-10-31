@@ -19,15 +19,17 @@ public class PassGFWClient {
     }
     
     /// Set the URL list to check
-    /// - Parameter urls: Array of URLs to check
-    public func setURLList(_ urls: [String]) {
-        detector.setURLList(urls)
+    /// - Parameter entries: Array of URL entries to check
+    public func setURLList(_ entries: [URLEntry]) {
+        detector.setURLList(entries)
     }
     
-    /// Add a URL to the check list
-    /// - Parameter url: URL to add
-    public func addURL(_ url: String) {
-        detector.addURL(url)
+    /// Add a URL entry to the check list
+    /// - Parameters:
+    ///   - method: Method type ("api" or "file")
+    ///   - url: URL to add
+    public func addURL(method: String, url: String) {
+        detector.addURL(method: method, url: url)
     }
     
     /// Get the last error message

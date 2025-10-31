@@ -2,7 +2,7 @@ import Foundation
 
 /// Firewall Detector - Core detection logic
 class FirewallDetector {
-    private var urlList: [String]
+    private var urlList: [URLEntry]
     private let networkClient: NetworkClient
     private let cryptoHelper: CryptoHelper
     private var lastError: String?
@@ -25,10 +25,10 @@ class FirewallDetector {
         while true {
             Logger.shared.debug("Starting URL iteration...")
             
-            for url in urlList {
-                Logger.shared.debug("Checking URL: \(url)")
+            for entry in urlList {
+                Logger.shared.debug("Checking URL: \(entry.url) (method: \(entry.method))")
                 
-                if let domain = await checkURL(url, customData: customData, recursionDepth: 0) {
+                if let domain = await checkURLEntry(entry, customData: customData, recursionDepth: 0) {
                     Logger.shared.info("Found available server: \(domain)")
                     return domain
                 }
@@ -45,13 +45,13 @@ class FirewallDetector {
     }
     
     /// Set URL list
-    func setURLList(_ urls: [String]) {
+    func setURLList(_ urls: [URLEntry]) {
         self.urlList = urls
     }
     
     /// Add URL to list
-    func addURL(_ url: String) {
-        self.urlList.append(url)
+    func addURL(method: String, url: String) {
+        self.urlList.append(URLEntry(method: method, url: url))
     }
     
     /// Get last error
@@ -61,28 +61,33 @@ class FirewallDetector {
     
     // MARK: - Private Methods
     
-    /// Check a single URL (with recursion support for list#)
-    private func checkURL(_ url: String, customData: String?, recursionDepth: Int) async -> String? {
+    /// Check a single URL entry
+    private func checkURLEntry(_ entry: URLEntry, customData: String?, recursionDepth: Int) async -> String? {
         lastError = nil
         
         // Check recursion depth limit
         guard recursionDepth <= Config.maxListRecursionDepth else {
-            lastError = "Maximum list recursion depth exceeded: \(url)"
-            Logger.shared.error("Recursion depth limit reached (\(recursionDepth)) for URL: \(url)")
+            lastError = "Maximum list recursion depth exceeded: \(entry.url)"
+            Logger.shared.error("Recursion depth limit reached (\(recursionDepth)) for URL: \(entry.url)")
             return nil
         }
         
-        // Check if it's a list URL (ending with #)
-        if url.hasSuffix("#") {
-            return await checkListURL(url, customData: customData, recursionDepth: recursionDepth)
-        } else {
-            return await checkNormalURL(url, customData: customData)
+        // Dispatch based on method
+        switch entry.method.lowercased() {
+        case "api":
+            return await checkAPIURL(entry.url, customData: customData)
+        case "file":
+            return await checkFileURL(entry.url, customData: customData, recursionDepth: recursionDepth)
+        default:
+            lastError = "Unknown method: \(entry.method)"
+            Logger.shared.error("Unknown method '\(entry.method)' for URL: \(entry.url)")
+            return nil
         }
     }
     
-    /// Check a normal URL with retry mechanism
-    private func checkNormalURL(_ url: String, customData: String?) async -> String? {
-        Logger.shared.debug("CheckNormalURL() called for: \(url) with customData: \(customData ?? "nil")")
+    /// Check an API URL with retry mechanism
+    private func checkAPIURL(_ url: String, customData: String?) async -> String? {
+        Logger.shared.debug("CheckAPIURL() called for: \(url) with customData: \(customData ?? "nil")")
         
         guard !url.isEmpty else {
             lastError = "Empty URL provided"
@@ -93,7 +98,7 @@ class FirewallDetector {
         for attempt in 1...Config.maxRetries {
             Logger.shared.debug("Attempt \(attempt)/\(Config.maxRetries) for URL: \(url)")
             
-            if let domain = await checkNormalURLOnce(url, customData: customData) {
+            if let domain = await checkAPIURLOnce(url, customData: customData) {
                 Logger.shared.info("Successfully verified URL: \(url) on attempt \(attempt)")
                 return domain
             }
@@ -112,8 +117,8 @@ class FirewallDetector {
         return nil
     }
     
-    /// Check a normal URL once (no retry)
-    private func checkNormalURLOnce(_ url: String, customData: String?) async -> String? {
+    /// Check an API URL once (no retry)
+    private func checkAPIURLOnce(_ url: String, customData: String?) async -> String? {
         // 1. Generate random nonce
         guard let randomData = cryptoHelper.generateRandom(length: Config.nonceSize) else {
             lastError = "Failed to generate random data"
@@ -188,20 +193,20 @@ class FirewallDetector {
         // 9. Parse server payload
         guard let serverPayloadData = serverResponseJSON.data(using: .utf8),
               let serverPayload = try? JSONSerialization.jsonObject(with: serverPayloadData) as? [String: String],
-              let returnedNonce = serverPayload["nonce"],
-              let returnedDomain = serverPayload["server_domain"] else {
-            lastError = "Failed to parse server payload or missing fields"
+              let returnedRandom = serverPayload["random"],
+              let returnedDomain = serverPayload["domain"] else {
+            lastError = "Failed to parse server payload or missing fields (random/domain)"
             return nil
         }
         
-        Logger.shared.debug("Returned nonce: \(returnedNonce)")
+        Logger.shared.debug("Returned random: \(returnedRandom)")
         Logger.shared.debug("Returned domain: \(returnedDomain)")
         
-        // 10. Verify nonce matches
-        guard returnedNonce == randomBase64 else {
+        // 10. Verify random matches
+        guard returnedRandom == randomBase64 else {
             let expectedPrefix = String(randomBase64.prefix(10))
-            let actualPrefix = String(returnedNonce.prefix(10))
-            lastError = "Nonce mismatch: expected: \(expectedPrefix)..., actual: \(actualPrefix)..."
+            let actualPrefix = String(returnedRandom.prefix(10))
+            lastError = "Random mismatch: expected: \(expectedPrefix)..., actual: \(actualPrefix)..."
             return nil
         }
         
@@ -210,57 +215,87 @@ class FirewallDetector {
         return returnedDomain
     }
     
-    /// Check a list URL (fetch sub-list and check each URL)
-    private func checkListURL(_ url: String, customData: String?, recursionDepth: Int) async -> String? {
-        Logger.shared.debug("CheckListURL() called for: \(url) (depth: \(recursionDepth))")
+    /// Check a file URL (fetch sub-list and check each URL)
+    private func checkFileURL(_ url: String, customData: String?, recursionDepth: Int) async -> String? {
+        Logger.shared.debug("CheckFileURL() called for: \(url) (depth: \(recursionDepth))")
         
-        guard url.count >= 2 else {
-            lastError = "Invalid list URL: too short"
-            return nil
-        }
-        
-        // Remove trailing #
-        let actualURL = String(url.dropLast())
-        guard !actualURL.isEmpty else {
-            lastError = "Empty URL after removing #"
+        guard !url.isEmpty else {
+            lastError = "Empty file URL provided"
             return nil
         }
         
         // Fetch sub-list
-        Logger.shared.debug("Fetching sub-list from: \(actualURL)")
-        let response = await networkClient.get(url: actualURL)
+        Logger.shared.debug("Fetching sub-list from: \(url)")
+        let response = await networkClient.get(url: url)
         
         guard response.success else {
-            lastError = "GET request failed: \(actualURL) - \(response.error ?? "unknown")"
+            lastError = "GET request failed: \(url) - \(response.error ?? "unknown")"
             return nil
         }
         
-        // Parse URL list
-        let subURLs = parseURLList(content: response.body)
-        guard !subURLs.isEmpty else {
-            lastError = "Sub-list empty or parse failed: \(actualURL)"
-            return nil
-        }
-        
-        Logger.shared.debug("Fetched \(subURLs.count) URLs from sub-list, checking each one...")
-        
-        // Check each URL in sub-list
-        for subURL in subURLs {
-            Logger.shared.debug("Checking sub-list URL: \(subURL)")
+        // Try to parse as JSON first (new format with urls array)
+        if let subEntries = parseURLEntriesJSON(content: response.body) {
+            Logger.shared.debug("Fetched \(subEntries.count) URL entries from JSON sub-list, checking each one...")
             
-            if let domain = await checkURL(subURL, customData: customData, recursionDepth: recursionDepth + 1) {
-                Logger.shared.info("Sub-list URL succeeded: \(subURL) -> \(domain)")
-                return domain
+            // Check each URL entry in sub-list
+            for subEntry in subEntries {
+                Logger.shared.debug("Checking sub-list entry: \(subEntry.url) (method: \(subEntry.method))")
+                
+                if let domain = await checkURLEntry(subEntry, customData: customData, recursionDepth: recursionDepth + 1) {
+                    Logger.shared.info("Sub-list entry succeeded: \(subEntry.url) -> \(domain)")
+                    return domain
+                }
+                
+                Logger.shared.debug("Sub-list entry failed: \(subEntry.url), trying next...")
+                try? await Task.sleep(nanoseconds: UInt64(Config.urlInterval * 1_000_000_000))
+            }
+        } else {
+            // Fallback: parse as plain text URL list (legacy format)
+            let subURLs = parseURLList(content: response.body)
+            guard !subURLs.isEmpty else {
+                lastError = "Sub-list empty or parse failed: \(url)"
+                return nil
             }
             
-            Logger.shared.debug("Sub-list URL failed: \(subURL), trying next...")
-            try? await Task.sleep(nanoseconds: UInt64(Config.urlInterval * 1_000_000_000))
+            Logger.shared.debug("Fetched \(subURLs.count) URLs from text sub-list, checking each one...")
+            
+            // Check each URL in sub-list (assume API method)
+            for subURL in subURLs {
+                Logger.shared.debug("Checking sub-list URL: \(subURL)")
+                let subEntry = URLEntry(method: "api", url: subURL)
+                
+                if let domain = await checkURLEntry(subEntry, customData: customData, recursionDepth: recursionDepth + 1) {
+                    Logger.shared.info("Sub-list URL succeeded: \(subURL) -> \(domain)")
+                    return domain
+                }
+                
+                Logger.shared.debug("Sub-list URL failed: \(subURL), trying next...")
+                try? await Task.sleep(nanoseconds: UInt64(Config.urlInterval * 1_000_000_000))
+            }
         }
         
         // All URLs in sub-list failed
         Logger.shared.debug("All URLs in sub-list failed")
-        lastError = "All URLs in sub-list failed: \(actualURL)"
+        lastError = "All URLs in sub-list failed: \(url)"
         return nil
+    }
+    
+    /// Parse URL entries from JSON content (new format)
+    private func parseURLEntriesJSON(content: String) -> [URLEntry]? {
+        guard let data = content.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let urlsArray = json["urls"] as? [[String: String]] else {
+            return nil
+        }
+        
+        var entries: [URLEntry] = []
+        for urlDict in urlsArray {
+            if let method = urlDict["method"], let url = urlDict["url"] {
+                entries.append(URLEntry(method: method, url: url))
+            }
+        }
+        
+        return entries.isEmpty ? nil : entries
     }
     
     /// Parse URL list from text content

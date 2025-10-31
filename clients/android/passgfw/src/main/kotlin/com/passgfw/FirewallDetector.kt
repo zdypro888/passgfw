@@ -8,7 +8,7 @@ import kotlinx.coroutines.delay
  * Firewall Detector - Core detection logic
  */
 class FirewallDetector {
-    private var urlList: MutableList<String> = Config.getBuiltinURLs().toMutableList()
+    private var urlList: MutableList<URLEntry> = Config.getBuiltinURLs().toMutableList()
     private val networkClient = NetworkClient()
     private val cryptoHelper = CryptoHelper()
     private var lastError: String? = null
@@ -29,10 +29,10 @@ class FirewallDetector {
         while (true) {
             Logger.debug("Starting URL iteration...")
             
-            for (url in urlList) {
-                Logger.debug("Checking URL: $url")
+            for (entry in urlList) {
+                Logger.debug("Checking URL: ${entry.url} (method: ${entry.method})")
                 
-                checkURL(url, customData, 0)?.let { domain ->
+                checkURLEntry(entry, customData, 0)?.let { domain ->
                     Logger.info("Found available server: $domain")
                     return domain
                 }
@@ -51,15 +51,15 @@ class FirewallDetector {
     /**
      * Set URL list
      */
-    fun setURLList(urls: List<String>) {
+    fun setURLList(urls: List<URLEntry>) {
         this.urlList = urls.toMutableList()
     }
     
     /**
      * Add URL to list
      */
-    fun addURL(url: String) {
-        this.urlList.add(url)
+    fun addURL(method: String, url: String) {
+        this.urlList.add(URLEntry(method, url))
     }
     
     /**
@@ -70,31 +70,35 @@ class FirewallDetector {
     // MARK: - Private Methods
     
     /**
-     * Check a single URL (with recursion support for list#)
+     * Check a single URL entry
      */
-    private suspend fun checkURL(url: String, customData: String?, recursionDepth: Int): String? {
+    private suspend fun checkURLEntry(entry: URLEntry, customData: String?, recursionDepth: Int): String? {
         lastError = null
         
         // Check recursion depth limit
         if (recursionDepth > Config.MAX_LIST_RECURSION_DEPTH) {
-            lastError = "Maximum list recursion depth exceeded: $url"
-            Logger.error("Recursion depth limit reached ($recursionDepth) for URL: $url")
+            lastError = "Maximum list recursion depth exceeded: ${entry.url}"
+            Logger.error("Recursion depth limit reached ($recursionDepth) for URL: ${entry.url}")
             return null
         }
         
-        // Check if it's a list URL (ending with #)
-        return if (url.endsWith("#")) {
-            checkListURL(url, customData, recursionDepth)
-        } else {
-            checkNormalURL(url, customData)
+        // Dispatch based on method
+        return when (entry.method.lowercase()) {
+            "api" -> checkAPIURL(entry.url, customData)
+            "file" -> checkFileURL(entry.url, customData, recursionDepth)
+            else -> {
+                lastError = "Unknown method: ${entry.method}"
+                Logger.error("Unknown method '${entry.method}' for URL: ${entry.url}")
+                null
+            }
         }
     }
     
     /**
-     * Check a normal URL with retry mechanism
+     * Check an API URL with retry mechanism
      */
-    private suspend fun checkNormalURL(url: String, customData: String?): String? {
-        Logger.debug("CheckNormalURL() called for: $url with customData: $customData")
+    private suspend fun checkAPIURL(url: String, customData: String?): String? {
+        Logger.debug("CheckAPIURL() called for: $url with customData: $customData")
         
         if (url.isEmpty()) {
             lastError = "Empty URL provided"
@@ -205,22 +209,22 @@ class FirewallDetector {
             return null
         }
         
-        val returnedNonce = serverPayload?.get("nonce") as? String
-        val returnedDomain = serverPayload?.get("server_domain") as? String
+        val returnedRandom = serverPayload?.get("random") as? String
+        val returnedDomain = serverPayload?.get("domain") as? String
         
-        if (returnedNonce == null || returnedDomain == null) {
-            lastError = "Server payload missing required fields"
+        if (returnedRandom == null || returnedDomain == null) {
+            lastError = "Server payload missing required fields (random/domain)"
             return null
         }
         
-        Logger.debug("Returned nonce: $returnedNonce")
+        Logger.debug("Returned random: $returnedRandom")
         Logger.debug("Returned domain: $returnedDomain")
         
-        // 10. Verify nonce matches
-        if (returnedNonce != randomBase64) {
+        // 10. Verify random matches
+        if (returnedRandom != randomBase64) {
             val expectedPrefix = randomBase64.take(10)
-            val actualPrefix = returnedNonce.take(10)
-            lastError = "Nonce mismatch: expected: $expectedPrefix..., actual: $actualPrefix..."
+            val actualPrefix = returnedRandom.take(10)
+            lastError = "Random mismatch: expected: $expectedPrefix..., actual: $actualPrefix..."
             return null
         }
         
@@ -230,58 +234,94 @@ class FirewallDetector {
     }
     
     /**
-     * Check a list URL (fetch sub-list and check each URL)
+     * Check a file URL (fetch sub-list and check each URL)
      */
-    private suspend fun checkListURL(url: String, customData: String?, recursionDepth: Int): String? {
-        Logger.debug("CheckListURL() called for: $url (depth: $recursionDepth)")
+    private suspend fun checkFileURL(url: String, customData: String?, recursionDepth: Int): String? {
+        Logger.debug("CheckFileURL() called for: $url (depth: $recursionDepth)")
         
-        if (url.length < 2) {
-            lastError = "Invalid list URL: too short"
-            return null
-        }
-        
-        // Remove trailing #
-        val actualURL = url.dropLast(1)
-        if (actualURL.isEmpty()) {
-            lastError = "Empty URL after removing #"
+        if (url.isEmpty()) {
+            lastError = "Empty file URL provided"
             return null
         }
         
         // Fetch sub-list
-        Logger.debug("Fetching sub-list from: $actualURL")
-        val response = networkClient.get(actualURL)
+        Logger.debug("Fetching sub-list from: $url")
+        val response = networkClient.get(url)
         
         if (!response.success) {
-            lastError = "GET request failed: $actualURL - ${response.error}"
+            lastError = "GET request failed: $url - ${response.error}"
             return null
         }
         
-        // Parse URL list
-        val subURLs = parseURLList(response.body)
-        if (subURLs.isEmpty()) {
-            lastError = "Sub-list empty or parse failed: $actualURL"
-            return null
-        }
-        
-        Logger.debug("Fetched ${subURLs.size} URLs from sub-list, checking each one...")
-        
-        // Check each URL in sub-list
-        for (subURL in subURLs) {
-            Logger.debug("Checking sub-list URL: $subURL")
+        // Try to parse as JSON first (new format with urls array)
+        val subEntries = parseURLEntriesJSON(response.body)
+        if (subEntries != null) {
+            Logger.debug("Fetched ${subEntries.size} URL entries from JSON sub-list, checking each one...")
             
-            checkURL(subURL, customData, recursionDepth + 1)?.let { domain ->
-                Logger.info("Sub-list URL succeeded: $subURL -> $domain")
-                return domain
+            // Check each URL entry in sub-list
+            for (subEntry in subEntries) {
+                Logger.debug("Checking sub-list entry: ${subEntry.url} (method: ${subEntry.method})")
+                
+                checkURLEntry(subEntry, customData, recursionDepth + 1)?.let { domain ->
+                    Logger.info("Sub-list entry succeeded: ${subEntry.url} -> $domain")
+                    return domain
+                }
+                
+                Logger.debug("Sub-list entry failed: ${subEntry.url}, trying next...")
+                delay(Config.URL_INTERVAL)
+            }
+        } else {
+            // Fallback: parse as plain text URL list (legacy format)
+            val subURLs = parseURLList(response.body)
+            if (subURLs.isEmpty()) {
+                lastError = "Sub-list empty or parse failed: $url"
+                return null
             }
             
-            Logger.debug("Sub-list URL failed: $subURL, trying next...")
-            delay(Config.URL_INTERVAL)
+            Logger.debug("Fetched ${subURLs.size} URLs from text sub-list, checking each one...")
+            
+            // Check each URL in sub-list (assume API method)
+            for (subURL in subURLs) {
+                Logger.debug("Checking sub-list URL: $subURL")
+                val subEntry = URLEntry(method = "api", url = subURL)
+                
+                checkURLEntry(subEntry, customData, recursionDepth + 1)?.let { domain ->
+                    Logger.info("Sub-list URL succeeded: $subURL -> $domain")
+                    return domain
+                }
+                
+                Logger.debug("Sub-list URL failed: $subURL, trying next...")
+                delay(Config.URL_INTERVAL)
+            }
         }
         
         // All URLs in sub-list failed
         Logger.debug("All URLs in sub-list failed")
-        lastError = "All URLs in sub-list failed: $actualURL"
+        lastError = "All URLs in sub-list failed: $url"
         return null
+    }
+    
+    /**
+     * Parse URL entries from JSON content (new format)
+     */
+    private fun parseURLEntriesJSON(content: String): List<URLEntry>? {
+        return try {
+            val gson = Gson()
+            val json = gson.fromJson(content, Map::class.java) as? Map<*, *>
+            val urlsArray = json?.get("urls") as? List<*>
+            
+            urlsArray?.mapNotNull { urlDict ->
+                (urlDict as? Map<*, *>)?.let {
+                    val method = it["method"] as? String
+                    val url = it["url"] as? String
+                    if (method != null && url != null) {
+                        URLEntry(method, url)
+                    } else null
+                }
+            }?.takeIf { it.isNotEmpty() }
+        } catch (e: Exception) {
+            null
+        }
     }
     
     /**

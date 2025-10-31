@@ -3,9 +3,18 @@
   "comment2": "Copy this file to 'build_config.json' and customize for your environment",
   
   "urls": [
-    "https://server1.example.com/passgfw",
-    "https://server2.example.com/passgfw",
-    "https://cdn.example.com/list.txt#"
+    {
+      "method": "api",
+      "url": "https://server1.example.com/passgfw"
+    },
+    {
+      "method": "api",
+      "url": "https://server2.example.com/passgfw"
+    },
+    {
+      "method": "file",
+      "url": "https://cdn.example.com/list.txt"
+    }
   ],
   
   "public_key_path": "../server/keys/public_key.pem",

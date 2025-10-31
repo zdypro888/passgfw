@@ -165,7 +165,7 @@ func handlePassGFW(c *gin.Context) {
 		return
 	}
 
-	log.Printf("   Nonce: %s", payload.Nonce)
+	log.Printf("   Random: %s", payload.Nonce)
 	if payload.ClientData != "" {
 		log.Printf("   Client data: %s", payload.ClientData)
 	}
@@ -180,10 +180,10 @@ func handlePassGFW(c *gin.Context) {
 	realDomain := getRealDomain(configuredDomain, payload.ClientData)
 	log.Printf("   Server domain: %s", realDomain)
 
-	// Construct response JSON
+	// Construct response JSON (using new field names: random + domain)
 	responsePayload := map[string]string{
-		"nonce":         payload.Nonce,
-		"server_domain": realDomain,
+		"random": payload.Nonce,
+		"domain": realDomain,
 	}
 
 	responseJSON, err := json.Marshal(responsePayload)
