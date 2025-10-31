@@ -39,10 +39,10 @@ type URLEntry struct {
 // Signature is calculated on the JSON of this struct WITHOUT the signature field
 // IMPORTANT: domain must not use omitempty to ensure consistent JSON structure for signature verification
 type PassGFWResponse struct {
-	Random    string     `json:"random"`           // Echoed nonce from client
-	Domain    string     `json:"domain"`           // Server domain (for API response) - MUST be present
-	URLs      []URLEntry `json:"urls,omitempty"`   // URL list (for file response)
-	Signature string     `json:"signature"`        // Base64 encoded RSA-SHA256 signature
+	Random    string     `json:"random"`         // Echoed nonce from client
+	Domain    string     `json:"domain"`         // Server domain (for API response) - MUST be present
+	URLs      []URLEntry `json:"urls,omitempty"` // URL list (for file response)
+	Signature string     `json:"signature"`      // Base64 encoded RSA-SHA256 signature
 }
 
 // Error response structure
