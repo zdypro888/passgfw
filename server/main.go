@@ -37,11 +37,12 @@ type URLEntry struct {
 
 // Response structure
 // Signature is calculated on the JSON of this struct WITHOUT the signature field
+// IMPORTANT: domain must not use omitempty to ensure consistent JSON structure for signature verification
 type PassGFWResponse struct {
-	Random    string     `json:"random"`              // Echoed nonce from client
-	Domain    string     `json:"domain,omitempty"`    // Server domain (for API response)
-	URLs      []URLEntry `json:"urls,omitempty"`      // URL list (for file response)
-	Signature string     `json:"signature,omitempty"` // Base64 encoded RSA-SHA256 signature
+	Random    string     `json:"random"`           // Echoed nonce from client
+	Domain    string     `json:"domain"`           // Server domain (for API response) - MUST be present
+	URLs      []URLEntry `json:"urls,omitempty"`   // URL list (for file response)
+	Signature string     `json:"signature"`        // Base64 encoded RSA-SHA256 signature
 }
 
 // Error response structure
@@ -195,14 +196,24 @@ func handlePassGFW(c *gin.Context) {
 		Domain: realDomain,
 	}
 
+	// CRITICAL: Validate that domain is not empty (otherwise omitempty causes mismatch)
+	if realDomain == "" {
+		log.Printf("❌ Domain cannot be empty")
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: "Server configuration error: domain not set",
+		})
+		return
+	}
+
 	// CRITICAL: Create ordered map for consistent JSON serialization across platforms
 	// All platforms must use alphabetically sorted keys for signature verification
+	// Note: Go's map iteration order is random, but json.Marshal always outputs in sorted key order
 	payloadMap := map[string]interface{}{
 		"domain": realDomain,
 		"random": payload.Nonce,
 	}
 
-	// Marshal response (sorted keys) for signing
+	// Marshal response (Go json.Marshal automatically sorts keys alphabetically)
 	responseJSON, err := json.Marshal(payloadMap)
 	if err != nil {
 		log.Printf("❌ Failed to marshal response JSON: %v", err)
