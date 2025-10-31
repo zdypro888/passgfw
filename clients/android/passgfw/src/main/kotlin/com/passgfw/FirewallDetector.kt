@@ -182,43 +182,30 @@ class FirewallDetector {
             return null
         }
         
-        val serverResponseJSON = responseJSON?.get("data") as? String
+        val returnedRandom = responseJSON?.get("random") as? String
+        val returnedDomain = responseJSON?.get("domain") as? String
         val signature = responseJSON?.get("signature") as? String
         
-        if (serverResponseJSON == null || signature == null) {
-            lastError = "Response JSON missing required fields"
-            return null
-        }
-        
-        Logger.debug("Server response JSON: $serverResponseJSON")
-        
-        // 8. Verify signature
-        val serverResponseData = serverResponseJSON.toByteArray(Charsets.UTF_8)
-        val signatureData = Base64.decode(signature, Base64.DEFAULT)
-        
-        if (!cryptoHelper.verifySignature(serverResponseData, signatureData)) {
-            lastError = "Signature verification failed"
-            return null
-        }
-        
-        // 9. Parse server payload
-        val serverPayload = try {
-            gson.fromJson(serverResponseJSON, Map::class.java) as? Map<*, *>
-        } catch (e: Exception) {
-            lastError = "Failed to parse server payload: ${e.message}"
-            return null
-        }
-        
-        val returnedRandom = serverPayload?.get("random") as? String
-        val returnedDomain = serverPayload?.get("domain") as? String
-        
-        if (returnedRandom == null || returnedDomain == null) {
-            lastError = "Server payload missing required fields (random/domain)"
+        if (returnedRandom == null || returnedDomain == null || signature == null) {
+            lastError = "Response JSON missing required fields (random/domain/signature)"
             return null
         }
         
         Logger.debug("Returned random: $returnedRandom")
         Logger.debug("Returned domain: $returnedDomain")
+        
+        // 8. Verify signature (sign response without signature field)
+        val payloadForSigning = responseJSON.toMutableMap()
+        payloadForSigning.remove("signature")
+        
+        val payloadJSON = gson.toJson(payloadForSigning)
+        val payloadData = payloadJSON.toByteArray(Charsets.UTF_8)
+        val signatureData = Base64.decode(signature, Base64.DEFAULT)
+        
+        if (!cryptoHelper.verifySignature(payloadData, signatureData)) {
+            lastError = "Signature verification failed"
+            return null
+        }
         
         // 10. Verify random matches
         if (returnedRandom != randomBase64) {

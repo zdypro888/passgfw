@@ -174,33 +174,26 @@ class FirewallDetector {
         // 7. Parse response JSON
         guard let responseData = response.body.data(using: .utf8),
               let responseJSON = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-              let serverResponseJSON = responseJSON["data"] as? String,
+              let returnedRandom = responseJSON["random"] as? String,
+              let returnedDomain = responseJSON["domain"] as? String,
               let signature = responseJSON["signature"] as? String else {
-            lastError = "Failed to parse response JSON or missing fields"
-            return nil
-        }
-        
-        Logger.shared.debug("Server response JSON: \(serverResponseJSON)")
-        
-        // 8. Verify signature
-        guard let serverResponseData = serverResponseJSON.data(using: .utf8),
-              let signatureData = Data(base64Encoded: signature),
-              cryptoHelper.verifySignature(data: serverResponseData, signature: signatureData) else {
-            lastError = "Signature verification failed"
-            return nil
-        }
-        
-        // 9. Parse server payload
-        guard let serverPayloadData = serverResponseJSON.data(using: .utf8),
-              let serverPayload = try? JSONSerialization.jsonObject(with: serverPayloadData) as? [String: String],
-              let returnedRandom = serverPayload["random"],
-              let returnedDomain = serverPayload["domain"] else {
-            lastError = "Failed to parse server payload or missing fields (random/domain)"
+            lastError = "Failed to parse response JSON or missing fields (random/domain/signature)"
             return nil
         }
         
         Logger.shared.debug("Returned random: \(returnedRandom)")
         Logger.shared.debug("Returned domain: \(returnedDomain)")
+        
+        // 8. Verify signature (sign response without signature field)
+        var payloadForSigning = responseJSON
+        payloadForSigning.removeValue(forKey: "signature")
+        
+        guard let payloadData = try? JSONSerialization.data(withJSONObject: payloadForSigning, options: [.sortedKeys]),
+              let signatureData = Data(base64Encoded: signature),
+              cryptoHelper.verifySignature(data: payloadData, signature: signatureData) else {
+            lastError = "Signature verification failed"
+            return nil
+        }
         
         // 10. Verify random matches
         guard returnedRandom == randomBase64 else {
