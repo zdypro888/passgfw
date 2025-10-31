@@ -34,8 +34,9 @@ type PassGFWRequest struct {
 
 // URL Entry structure
 type URLEntry struct {
-	Method string `json:"method"` // "api" or "file"
-	URL    string `json:"url"`    // URL string
+	Method string `json:"method"`          // "api", "file", or "remove"
+	URL    string `json:"url"`             // URL string
+	Store  bool   `json:"store,omitempty"` // Optional: whether to persist locally (only valid for api and file)
 }
 
 // Response structure
@@ -85,7 +86,7 @@ func main() {
 	// Setup routes
 	router.POST("/passgfw", handlePassGFW)
 	router.GET("/health", handleHealth)
-	
+
 	// Admin routes (protected)
 	router.GET("/admin", adminAuth(), handleAdminPage)
 	router.POST("/api/generate-list", adminAuth(), handleGenerateList)
@@ -99,7 +100,7 @@ func main() {
 	log.Printf("   - POST http://localhost:%s/passgfw", port)
 	log.Printf("   - GET  http://localhost:%s/health", port)
 	log.Printf("   - GET  http://localhost:%s/admin (管理工具)", port)
-	
+
 	// Admin security info
 	if adminUser != "" && adminPass != "" {
 		log.Printf("")
@@ -110,13 +111,13 @@ func main() {
 		log.Printf("")
 		log.Printf("⚠️  Admin authentication: DISABLED (use -admin-user and -admin-pass to enable)")
 	}
-	
+
 	if adminLocal {
 		log.Printf("🔒 Admin access: LOCALHOST ONLY")
 	} else {
 		log.Printf("⚠️  Admin access: ALL IPs (use -admin-local to restrict)")
 	}
-	
+
 	log.Printf("")
 
 	if err := router.Run(addr); err != nil {
@@ -139,11 +140,11 @@ func adminAuth() gin.HandlerFunc {
 				return
 			}
 		}
-		
+
 		// Check HTTP Basic Auth
 		if adminUser != "" && adminPass != "" {
 			user, pass, hasAuth := c.Request.BasicAuth()
-			
+
 			if !hasAuth || user != adminUser || pass != adminPass {
 				log.Printf("❌ Admin authentication failed: invalid credentials (IP: %s)", c.ClientIP())
 				c.Header("WWW-Authenticate", `Basic realm="PassGFW Admin"`)
@@ -153,10 +154,10 @@ func adminAuth() gin.HandlerFunc {
 				c.Abort()
 				return
 			}
-			
+
 			log.Printf("✅ Admin authenticated: %s (IP: %s)", user, c.ClientIP())
 		}
-		
+
 		c.Next()
 	}
 }
@@ -649,10 +650,13 @@ func getAdminHTML() string {
                         <select class="method-select">
                             <option value="api">API</option>
                             <option value="file">File</option>
-                            <option value="store">Store (永久保存)</option>
                             <option value="remove">Remove (删除)</option>
                         </select>
                         <input type="text" class="url-input" placeholder="https://example.com/passgfw" value="https://server1.example.com/passgfw">
+                        <label style="display: flex; align-items: center; gap: 5px; white-space: nowrap;">
+                            <input type="checkbox" class="store-checkbox">
+                            <span>持久化</span>
+                        </label>
                         <button onclick="removeURLEntry(this)">删除</button>
                     </div>
                 </div>
@@ -722,10 +726,13 @@ func getAdminHTML() string {
                 <select class="method-select">
                     <option value="api">API</option>
                     <option value="file">File</option>
-                    <option value="store">Store (永久保存)</option>
                     <option value="remove">Remove (删除)</option>
                 </select>
                 <input type="text" class="url-input" placeholder="https://example.com/passgfw">
+                <label style="display: flex; align-items: center; gap: 5px; white-space: nowrap;">
+                    <input type="checkbox" class="store-checkbox">
+                    <span>持久化</span>
+                </label>
                 <button onclick="removeURLEntry(this)">删除</button>
             ` + "`" + `;
             container.appendChild(entry);
@@ -743,12 +750,19 @@ func getAdminHTML() string {
         async function generateList() {
             const entries = document.querySelectorAll('.url-entry');
             const urls = [];
-            
+
             entries.forEach(entry => {
                 const method = entry.querySelector('.method-select').value;
                 const url = entry.querySelector('.url-input').value.trim();
+                const storeChecked = entry.querySelector('.store-checkbox').checked;
+
                 if (url) {
-                    urls.push({ method, url });
+                    const urlEntry = { method, url };
+                    // 只有当 store 被勾选且 method 不是 remove 时才添加 store 字段
+                    if (storeChecked && method !== 'remove') {
+                        urlEntry.store = true;
+                    }
+                    urls.push(urlEntry);
                 }
             });
 

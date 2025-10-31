@@ -1,24 +1,46 @@
 {
   "comment": "PassGFW Build Configuration Template",
   "comment2": "Copy this file to 'build_config.json' and customize for your environment",
-  
+
   "urls": [
     {
+      "comment": "Regular API endpoint",
       "method": "api",
       "url": "https://server1.example.com/passgfw"
     },
     {
+      "comment": "API endpoint with store flag - will be persisted locally if successful",
       "method": "api",
-      "url": "https://server2.example.com/passgfw"
+      "url": "https://server2.example.com/passgfw",
+      "store": true
     },
     {
+      "comment": "File URL - supports multiple formats (JSON, HTML, TXT with markers)",
+      "comment2": "Supports: *PGFW* marker, HTML tags, pure JSON, plain text",
       "method": "file",
       "url": "https://cdn.example.com/list.txt"
+    },
+    {
+      "comment": "File URL with store flag - will be stored if successfully fetched",
+      "method": "file",
+      "url": "https://backup.example.com/urls.json",
+      "store": true
+    },
+    {
+      "comment": "Remove method - removes a specific URL from local storage",
+      "method": "remove",
+      "url": "https://old-server.example.com/passgfw"
     }
   ],
-  
+
+  "comment3": "URL Entry Fields Explanation:",
+  "comment4": "- method: 'api', 'file', or 'remove'",
+  "comment5": "- url: The URL string",
+  "comment6": "- store: (optional) true to persist this URL locally after successful check",
+  "comment7": "  Note: store flag is only valid for 'api' and 'file' methods, ignored for 'remove'",
+
   "public_key_path": "../server/keys/public_key.pem",
-  
+
   "config": {
     "request_timeout": 10,
     "max_retries": 3,

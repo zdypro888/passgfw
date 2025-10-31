@@ -75,82 +75,92 @@ class FirewallDetector {
     /// Check a single URL entry
     private func checkURLEntry(_ entry: URLEntry, customData: String?, recursionDepth: Int) async -> String? {
         lastError = nil
-        
+
         // Check recursion depth limit
         guard recursionDepth <= Config.maxListRecursionDepth else {
             lastError = "Maximum list recursion depth exceeded: \(entry.url)"
             Logger.shared.error("Recursion depth limit reached (\(recursionDepth)) for URL: \(entry.url)")
             return nil
         }
-        
-        // Dispatch based on method
-        switch entry.method.lowercased() {
-        case "api":
-            return await checkAPIURL(entry.url, customData: customData)
-        case "file":
-            return await checkFileURL(entry.url, customData: customData, recursionDepth: recursionDepth)
-        case "store":
-            // Store this URL to local storage for permanent use
-            Logger.shared.info("Storing URL to local storage: \(entry.url)")
-            if URLStorageManager.shared.addURL(URLEntry(method: "api", url: entry.url)) {
-                Logger.shared.info("Successfully stored URL: \(entry.url)")
-                // After storing, check it as an API URL
-                return await checkAPIURL(entry.url, customData: customData)
-            } else {
-                Logger.shared.error("Failed to store URL: \(entry.url)")
-                return nil
-            }
-        case "remove":
-            // Remove this URL from local storage
-            Logger.shared.info("Removing URL from local storage: \(entry.url)")
+
+        // Handle "remove" method - 从存储中删除 URL
+        if entry.method.lowercased() == "remove" {
+            Logger.shared.info("删除本地存储中的 URL: \(entry.url)")
             if URLStorageManager.shared.removeURL(entry.url) {
-                Logger.shared.info("Successfully removed URL: \(entry.url)")
+                Logger.shared.info("成功删除 URL: \(entry.url)")
             } else {
-                Logger.shared.warning("Failed to remove URL (may not exist): \(entry.url)")
+                Logger.shared.warning("删除失败（URL 可能不存在）: \(entry.url)")
             }
-            // Don't check this URL, just skip it
-            return nil
-        default:
-            lastError = "Unknown method: \(entry.method)"
-            Logger.shared.error("Unknown method '\(entry.method)' for URL: \(entry.url)")
+            // 不检查此 URL，直接跳过
             return nil
         }
+
+        // Dispatch based on method
+        var result: String? = nil
+
+        switch entry.method.lowercased() {
+        case "api":
+            result = await checkAPIURL(entry.url, customData: customData, recursionDepth: recursionDepth)
+        case "file":
+            result = await checkFileURL(entry.url, customData: customData, recursionDepth: recursionDepth)
+        default:
+            lastError = "Unknown method: \(entry.method)"
+            Logger.shared.error("未知的 method '\(entry.method)' for URL: \(entry.url)")
+            return nil
+        }
+
+        // 如果检查成功且 store=true，则异步持久化存储此 URL（不阻塞返回）
+        if result != nil, entry.store == true {
+            let storedEntry = URLEntry(method: entry.method, url: entry.url, store: false)
+
+            // 后台异步存储，不阻塞返回
+            Task.detached(priority: .background) {
+                Logger.shared.info("后台存储检测成功的 URL: \(entry.url) (method: \(entry.method))")
+                if URLStorageManager.shared.addURL(storedEntry) {
+                    Logger.shared.info("成功存储 URL: \(entry.url)")
+                } else {
+                    Logger.shared.error("存储 URL 失败: \(entry.url)")
+                }
+            }
+        }
+
+        return result
     }
     
     /// Check an API URL with retry mechanism
-    private func checkAPIURL(_ url: String, customData: String?) async -> String? {
+    private func checkAPIURL(_ url: String, customData: String?, recursionDepth: Int) async -> String? {
         Logger.shared.debug("CheckAPIURL() called for: \(url) with customData: \(customData ?? "nil")")
-        
+
         guard !url.isEmpty else {
             lastError = "Empty URL provided"
             return nil
         }
-        
+
         // Retry loop
         for attempt in 1...Config.maxRetries {
             Logger.shared.debug("Attempt \(attempt)/\(Config.maxRetries) for URL: \(url)")
-            
-            if let domain = await checkAPIURLOnce(url, customData: customData) {
+
+            if let domain = await checkAPIURLOnce(url, customData: customData, recursionDepth: recursionDepth) {
                 Logger.shared.info("Successfully verified URL: \(url) on attempt \(attempt)")
                 return domain
             }
-            
+
             // If this was the last attempt, give up
             if attempt == Config.maxRetries {
                 Logger.shared.warning("All \(Config.maxRetries) attempts failed for URL: \(url). Last error: \(lastError ?? "unknown")")
                 return nil
             }
-            
+
             // Wait before retry
             Logger.shared.debug("Waiting \(Config.retryDelay)s before retry...")
             try? await Task.sleep(nanoseconds: UInt64(Config.retryDelay * 1_000_000_000))
         }
-        
+
         return nil
     }
     
     /// Check an API URL once (no retry)
-    private func checkAPIURLOnce(_ url: String, customData: String?) async -> String? {
+    private func checkAPIURLOnce(_ url: String, customData: String?, recursionDepth: Int) async -> String? {
         // 1. Generate random nonce
         guard let randomData = cryptoHelper.generateRandom(length: Config.nonceSize) else {
             lastError = "Failed to generate random data"
@@ -158,27 +168,27 @@ class FirewallDetector {
         }
         let randomBase64 = randomData.base64EncodedString()
         Logger.shared.debug("Generated random data: \(randomData.count) bytes")
-        
+
         // 2. Truncate custom data if too long
         var clientData = customData ?? ""
         if clientData.count > Config.maxClientDataSize {
             Logger.shared.warning("client_data truncated from \(clientData.count) to \(Config.maxClientDataSize) bytes")
             clientData = String(clientData.prefix(Config.maxClientDataSize))
         }
-        
+
         // 3. Build JSON payload
         let payload: [String: String] = [
             "nonce": randomBase64,
             "client_data": clientData
         ]
-        
+
         guard let payloadData = try? JSONSerialization.data(withJSONObject: payload),
               let payloadJSON = String(data: payloadData, encoding: .utf8) else {
             lastError = "Failed to construct payload JSON"
             return nil
         }
         Logger.shared.debug("Payload JSON: \(payloadJSON)")
-        
+
         // 4. Encrypt payload
         guard let payloadBytes = payloadJSON.data(using: .utf8),
               let encryptedData = cryptoHelper.encrypt(data: payloadBytes) else {
@@ -187,7 +197,7 @@ class FirewallDetector {
         }
         let encryptedBase64 = encryptedData.base64EncodedString()
         Logger.shared.debug("Encrypted data: \(encryptedData.count) bytes")
-        
+
         // 5. Build request JSON
         let requestData: [String: String] = ["data": encryptedBase64]
         guard let requestJSON = try? JSONSerialization.data(withJSONObject: requestData),
@@ -195,58 +205,126 @@ class FirewallDetector {
             lastError = "Failed to construct request JSON"
             return nil
         }
-        
+
         // 6. POST request
         let response = await networkClient.post(url: url, jsonBody: requestBody)
         guard response.success else {
             lastError = "POST request failed: \(url) - \(response.error ?? "unknown")"
             return nil
         }
-        
+
         // 7. Parse response JSON
         guard let responseData = response.body.data(using: .utf8),
               let responseJSON = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
               let returnedRandom = responseJSON["random"] as? String,
-              let returnedDomain = responseJSON["domain"] as? String,
               let signature = responseJSON["signature"] as? String else {
-            lastError = "Failed to parse response JSON or missing fields (random/domain/signature)"
+            lastError = "Failed to parse response JSON or missing required fields (random/signature)"
             return nil
         }
-        
+
+        // domain 和 urls 都是可选的
+        let returnedDomain = responseJSON["domain"] as? String
+
         Logger.shared.debug("Returned random: \(returnedRandom)")
-        Logger.shared.debug("Returned domain: \(returnedDomain)")
-        
+        if let domain = returnedDomain {
+            Logger.shared.debug("Returned domain: \(domain)")
+        }
+
         // 8. Verify signature (sign response without signature field)
         // CRITICAL: Must use sorted keys to match server serialization
         var payloadForSigning = responseJSON
         payloadForSigning.removeValue(forKey: "signature")
-        
+
         guard let payloadData = try? JSONSerialization.data(withJSONObject: payloadForSigning, options: [.sortedKeys]) else {
             lastError = "Failed to serialize payload for verification"
             return nil
         }
-        
+
         if let payloadString = String(data: payloadData, encoding: .utf8) {
             Logger.shared.debug("Payload for verification: \(payloadString)")
         }
-        
+
         guard let signatureData = Data(base64Encoded: signature),
               cryptoHelper.verifySignature(data: payloadData, signature: signatureData) else {
             lastError = "Signature verification failed"
             return nil
         }
-        
-        // 10. Verify random matches
+
+        // 9. Verify random matches
         guard returnedRandom == randomBase64 else {
             let expectedPrefix = String(randomBase64.prefix(10))
             let actualPrefix = String(returnedRandom.prefix(10))
             lastError = "Random mismatch: expected: \(expectedPrefix)..., actual: \(actualPrefix)..."
             return nil
         }
-        
-        // 11. Success!
-        Logger.shared.debug("Verification successful! Using domain: \(returnedDomain)")
-        return returnedDomain
+
+        // 10. 处理服务器返回的 urls 数组（如果有）
+        if let urlsData = responseJSON["urls"] as? [[String: Any]] {
+            Logger.shared.debug("Server returned \(urlsData.count) URLs in response")
+
+            var urlEntries: [URLEntry] = []
+            for urlDict in urlsData {
+                if let method = urlDict["method"] as? String,
+                   let url = urlDict["url"] as? String {
+                    let store = urlDict["store"] as? Bool ?? false
+                    urlEntries.append(URLEntry(method: method, url: url, store: store))
+                }
+            }
+
+            // 策略：如果有 domain，说明服务器可信，异步存储 store=true 的 URL（不阻塞返回）
+            if returnedDomain != nil {
+                for entry in urlEntries where entry.store == true {
+                    let storedEntry = URLEntry(method: entry.method, url: entry.url, store: false)
+                    // 后台异步存储，不阻塞返回
+                    Task.detached(priority: .background) {
+                        Logger.shared.info("后台存储服务器推荐的 URL: \(entry.url) (method: \(entry.method))")
+                        if URLStorageManager.shared.addURL(storedEntry) {
+                            Logger.shared.info("成功存储 URL: \(entry.url)")
+                        } else {
+                            Logger.shared.error("存储 URL 失败: \(entry.url)")
+                        }
+                    }
+                }
+            } else {
+                // 没有 domain，循环检测 urls，只存储检测成功的
+                Logger.shared.debug("No domain in response, checking URLs from server...")
+
+                for entry in urlEntries {
+                    Logger.shared.debug("Checking server-provided URL: \(entry.url) (method: \(entry.method))")
+
+                    if let domain = await checkURLEntry(entry, customData: customData, recursionDepth: recursionDepth + 1) {
+                        Logger.shared.info("Server-provided URL succeeded: \(entry.url) -> \(domain)")
+
+                        // 检测成功，异步存储（不阻塞返回）
+                        if entry.store == true {
+                            let storedEntry = URLEntry(method: entry.method, url: entry.url, store: false)
+                            Task.detached(priority: .background) {
+                                Logger.shared.info("后台存储检测成功的 URL: \(entry.url)")
+                                _ = URLStorageManager.shared.addURL(storedEntry)
+                            }
+                        }
+
+                        return domain
+                    }
+
+                    Logger.shared.debug("Server-provided URL failed: \(entry.url), trying next...")
+                    try? await Task.sleep(nanoseconds: UInt64(Config.urlInterval * 1_000_000_000))
+                }
+
+                lastError = "All server-provided URLs failed"
+                return nil
+            }
+        }
+
+        // 11. 如果有 domain，返回它
+        if let domain = returnedDomain {
+            Logger.shared.debug("Verification successful! Using domain: \(domain)")
+            return domain
+        }
+
+        // 既没有 domain 也没有 urls
+        lastError = "Response has neither domain nor urls"
+        return nil
     }
     
     /// Check a file URL (fetch sub-list and check each URL)
@@ -314,51 +392,125 @@ class FirewallDetector {
         return nil
     }
     
-    /// Parse URL entries from content
+    /// 智能解析 URL entries（支持多种格式）
     /// Supports:
-    /// 1. *PGFW*base64(URLEntry[] JSON)*PGFW* format (preferred, can embed anywhere)
+    /// 1. *PGFW*base64(URLEntry[] JSON)*PGFW* format (preferred, can embed anywhere including HTML)
     /// 2. Direct URLEntry[] JSON array format
     /// 3. Legacy {"urls": [...]} format
+    /// 4. HTML with <pre>, <code>, or <script type="application/json"> tags
     private func parseURLEntriesJSON(content: String) -> [URLEntry]? {
-        // Try to extract *PGFW*base64*PGFW* format first
+        Logger.shared.debug("开始智能解析内容（长度: \(content.count)）")
+
+        // 策略1: 尝试提取 *PGFW*base64*PGFW* 标记（优先级最高，可嵌入任何格式）
         if let extracted = extractPGFWContent(from: content) {
-            Logger.shared.debug("Found *PGFW* marker, extracted base64 length: \(extracted.count)")
-            
-            // Decode base64
+            Logger.shared.info("✓ 检测到 *PGFW* 标记格式")
+
             guard let decodedData = Data(base64Encoded: extracted),
                   let decodedString = String(data: decodedData, encoding: .utf8) else {
-                Logger.shared.debug("Failed to decode base64 content")
+                Logger.shared.warning("× Base64 解码失败")
                 return nil
             }
-            
-            Logger.shared.debug("Decoded PGFW content: \(decodedString.prefix(200))...")
-            
-            // Parse as URLEntry[] JSON array
+
+            Logger.shared.debug("解码内容: \(decodedString.prefix(200))...")
+
             if let entries = parseURLEntryArray(json: decodedString) {
+                Logger.shared.info("✓ 成功解析 *PGFW* 格式，获得 \(entries.count) 个 URL")
                 return entries
             }
         }
-        
-        // Fallback 1: Try to parse as direct URLEntry[] JSON array
+
+        // 策略2: 检测是否为 HTML，提取特定标签内容
+        if content.contains("<html") || content.contains("<!DOCTYPE") {
+            Logger.shared.info("✓ 检测到 HTML 格式，尝试提取内容...")
+
+            // 尝试提取 <pre> 标签内容
+            if let preContent = extractHTMLTag(from: content, tag: "pre") {
+                Logger.shared.debug("从 <pre> 标签提取到内容")
+                if let entries = parseURLEntryArray(json: preContent) {
+                    Logger.shared.info("✓ 成功从 HTML <pre> 解析，获得 \(entries.count) 个 URL")
+                    return entries
+                }
+            }
+
+            // 尝试提取 <code> 标签内容
+            if let codeContent = extractHTMLTag(from: content, tag: "code") {
+                Logger.shared.debug("从 <code> 标签提取到内容")
+                if let entries = parseURLEntryArray(json: codeContent) {
+                    Logger.shared.info("✓ 成功从 HTML <code> 解析，获得 \(entries.count) 个 URL")
+                    return entries
+                }
+            }
+
+            // 尝试提取 <script type="application/json"> 内容
+            if let scriptContent = extractJSONScript(from: content) {
+                Logger.shared.debug("从 <script> 标签提取到 JSON")
+                if let entries = parseURLEntryArray(json: scriptContent) {
+                    Logger.shared.info("✓ 成功从 HTML <script> 解析，获得 \(entries.count) 个 URL")
+                    return entries
+                }
+            }
+
+            Logger.shared.warning("× HTML 中未找到有效的 URL 数据")
+        }
+
+        // 策略3: 尝试直接解析为 URLEntry[] JSON 数组
         if let entries = parseURLEntryArray(json: content) {
+            Logger.shared.info("✓ 成功解析为直接 JSON 数组，获得 \(entries.count) 个 URL")
             return entries
         }
-        
-        // Fallback 2: Try legacy {"urls": [...]} format
-        guard let data = content.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let urlsArray = json["urls"] as? [[String: String]] else {
-            return nil
-        }
-        
-        var entries: [URLEntry] = []
-        for urlDict in urlsArray {
-            if let method = urlDict["method"], let url = urlDict["url"] {
-                entries.append(URLEntry(method: method, url: url))
+
+        // 策略4: 尝试 legacy {"urls": [...]} 格式
+        if let data = content.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let urlsArray = json["urls"] as? [[String: String]] {
+
+            var entries: [URLEntry] = []
+            for urlDict in urlsArray {
+                if let method = urlDict["method"], let url = urlDict["url"] {
+                    let store = urlDict["store"] == "true" || urlDict["store"] == "1"
+                    entries.append(URLEntry(method: method, url: url, store: store))
+                }
+            }
+
+            if !entries.isEmpty {
+                Logger.shared.info("✓ 成功解析为 Legacy 格式，获得 \(entries.count) 个 URL")
+                return entries
             }
         }
-        
-        return entries.isEmpty ? nil : entries
+
+        Logger.shared.warning("× 所有 JSON 解析策略均失败")
+        return nil
+    }
+
+    /// 从 HTML 中提取指定标签的内容
+    private func extractHTMLTag(from html: String, tag: String) -> String? {
+        let pattern = "<\(tag)[^>]*>(.*?)</\(tag)>"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators, .caseInsensitive]),
+              let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+              let contentRange = Range(match.range(at: 1), in: html) else {
+            return nil
+        }
+
+        let content = String(html[contentRange])
+        // 解码 HTML entities
+        return content
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 从 HTML 中提取 <script type="application/json"> 的内容
+    private func extractJSONScript(from html: String) -> String? {
+        let pattern = "<script[^>]*type=[\"']application/json[\"'][^>]*>(.*?)</script>"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators, .caseInsensitive]),
+              let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+              let contentRange = Range(match.range(at: 1), in: html) else {
+            return nil
+        }
+
+        return String(html[contentRange]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     /// Extract content between *PGFW* markers

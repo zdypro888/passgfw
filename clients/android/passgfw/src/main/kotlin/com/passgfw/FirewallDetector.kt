@@ -92,112 +92,117 @@ class FirewallDetector {
      */
     private suspend fun checkURLEntry(entry: URLEntry, customData: String?, recursionDepth: Int): String? {
         lastError = null
-        
+
         // Check recursion depth limit
         if (recursionDepth > Config.MAX_LIST_RECURSION_DEPTH) {
             lastError = "Maximum list recursion depth exceeded: ${entry.url}"
             Logger.error("Recursion depth limit reached ($recursionDepth) for URL: ${entry.url}")
             return null
         }
-        
+
+        // Handle "remove" method - 从存储中删除 URL
+        if (entry.method.lowercase() == "remove") {
+            Logger.info("删除本地存储中的 URL: ${entry.url}")
+            try {
+                val manager = URLStorageManager.getInstance()
+                if (manager.removeURL(entry.url)) {
+                    Logger.info("成功删除 URL: ${entry.url}")
+                } else {
+                    Logger.warning("删除失败（URL 可能不存在）: ${entry.url}")
+                }
+            } catch (e: Exception) {
+                Logger.error("URLStorageManager not available: ${e.message}")
+            }
+            // 不检查此 URL，直接跳过
+            return null
+        }
+
         // Dispatch based on method
-        return when (entry.method.lowercase()) {
-            "api" -> checkAPIURL(entry.url, customData)
+        val result = when (entry.method.lowercase()) {
+            "api" -> checkAPIURL(entry.url, customData, recursionDepth)
             "file" -> checkFileURL(entry.url, customData, recursionDepth)
-            "store" -> {
-                // Store this URL to local storage for permanent use
-                Logger.info("Storing URL to local storage: ${entry.url}")
-                try {
-                    val manager = URLStorageManager.getInstance()
-                    if (manager.addURL(URLEntry(method = "api", url = entry.url))) {
-                        Logger.info("Successfully stored URL: ${entry.url}")
-                        // After storing, check it as an API URL
-                        checkAPIURL(entry.url, customData)
-                    } else {
-                        Logger.error("Failed to store URL: ${entry.url}")
-                        null
-                    }
-                } catch (e: Exception) {
-                    Logger.error("URLStorageManager not available: ${e.message}")
-                    null
-                }
-            }
-            "remove" -> {
-                // Remove this URL from local storage
-                Logger.info("Removing URL from local storage: ${entry.url}")
-                try {
-                    val manager = URLStorageManager.getInstance()
-                    if (manager.removeURL(entry.url)) {
-                        Logger.info("Successfully removed URL: ${entry.url}")
-                    } else {
-                        Logger.warning("Failed to remove URL (may not exist): ${entry.url}")
-                    }
-                } catch (e: Exception) {
-                    Logger.error("URLStorageManager not available: ${e.message}")
-                }
-                // Don't check this URL, just skip it
-                null
-            }
             else -> {
                 lastError = "Unknown method: ${entry.method}"
-                Logger.error("Unknown method '${entry.method}' for URL: ${entry.url}")
+                Logger.error("未知的 method '${entry.method}' for URL: ${entry.url}")
                 null
             }
         }
+
+        // 如果检查成功且 store=true，则异步持久化存储此 URL（不阻塞返回）
+        if (result != null && entry.store) {
+            val storedEntry = URLEntry(method = entry.method, url = entry.url, store = false)
+
+            // 后台异步存储，不阻塞返回
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                Logger.info("后台存储检测成功的 URL: ${entry.url} (method: ${entry.method})")
+                try {
+                    val manager = URLStorageManager.getInstance()
+                    if (manager.addURL(storedEntry)) {
+                        Logger.info("成功存储 URL: ${entry.url}")
+                    } else {
+                        Logger.error("存储 URL 失败: ${entry.url}")
+                    }
+                } catch (e: Exception) {
+                    Logger.error("URLStorageManager not available: ${e.message}")
+                }
+            }
+        }
+
+        return result
     }
     
     /**
      * Check an API URL with retry mechanism
      */
-    private suspend fun checkAPIURL(url: String, customData: String?): String? {
+    private suspend fun checkAPIURL(url: String, customData: String?, recursionDepth: Int): String? {
         Logger.debug("CheckAPIURL() called for: $url with customData: $customData")
-        
+
         if (url.isEmpty()) {
             lastError = "Empty URL provided"
             return null
         }
-        
+
         // Retry loop
         for (attempt in 1..Config.MAX_RETRIES) {
             Logger.debug("Attempt $attempt/${Config.MAX_RETRIES} for URL: $url")
-            
-            checkNormalURLOnce(url, customData)?.let { domain ->
+
+            checkNormalURLOnce(url, customData, recursionDepth)?.let { domain ->
                 Logger.info("Successfully verified URL: $url on attempt $attempt")
                 return domain
             }
-            
+
             // If this was the last attempt, give up
             if (attempt == Config.MAX_RETRIES) {
                 Logger.warning("All ${Config.MAX_RETRIES} attempts failed for URL: $url. Last error: ${lastError ?: "unknown"}")
                 return null
             }
-            
+
             // Wait before retry
             Logger.debug("Waiting ${Config.RETRY_DELAY}ms before retry...")
             delay(Config.RETRY_DELAY)
         }
-        
+
         return null
     }
     
     /**
      * Check a normal URL once (no retry)
      */
-    private fun checkNormalURLOnce(url: String, customData: String?): String? {
+    private suspend fun checkNormalURLOnce(url: String, customData: String?, recursionDepth: Int): String? {
         val gson = Gson()
-        
+
         // 1. Generate random nonce
         val randomData = cryptoHelper.generateRandom(Config.NONCE_SIZE)
         val randomBase64 = Base64.encodeToString(randomData, Base64.NO_WRAP)
         Logger.debug("Generated random data: ${randomData.size} bytes")
-        
+
         // 2. Truncate custom data if too long
         var clientData = customData ?: ""
         if (clientData.length > Config.MAX_CLIENT_DATA_SIZE) {
             Logger.warning("client_data truncated from ${clientData.length} to ${Config.MAX_CLIENT_DATA_SIZE} bytes")
             clientData = clientData.substring(0, Config.MAX_CLIENT_DATA_SIZE)
         }
-        
+
         // 3. Build JSON payload
         val payload = mapOf(
             "nonce" to randomBase64,
@@ -205,7 +210,7 @@ class FirewallDetector {
         )
         val payloadJSON = gson.toJson(payload)
         Logger.debug("Payload JSON: $payloadJSON")
-        
+
         // 4. Encrypt payload
         val encryptedData = cryptoHelper.encrypt(payloadJSON.toByteArray(Charsets.UTF_8))
         if (encryptedData == null) {
@@ -214,18 +219,18 @@ class FirewallDetector {
         }
         val encryptedBase64 = Base64.encodeToString(encryptedData, Base64.NO_WRAP)
         Logger.debug("Encrypted data: ${encryptedData.size} bytes")
-        
+
         // 5. Build request JSON
         val requestData = mapOf("data" to encryptedBase64)
         val requestBody = gson.toJson(requestData)
-        
+
         // 6. POST request
         val response = networkClient.post(url, requestBody)
         if (!response.success) {
             lastError = "POST request failed: $url - ${response.error}"
             return null
         }
-        
+
         // 7. Parse response JSON
         val responseJSON = try {
             gson.fromJson(response.body, Map::class.java) as? Map<*, *>
@@ -233,19 +238,23 @@ class FirewallDetector {
             lastError = "Failed to parse response JSON: ${e.message}"
             return null
         }
-        
+
         val returnedRandom = responseJSON?.get("random") as? String
-        val returnedDomain = responseJSON?.get("domain") as? String
         val signature = responseJSON?.get("signature") as? String
-        
-        if (returnedRandom == null || returnedDomain == null || signature == null) {
-            lastError = "Response JSON missing required fields (random/domain/signature)"
+
+        if (returnedRandom == null || signature == null) {
+            lastError = "Response JSON missing required fields (random/signature)"
             return null
         }
-        
+
+        // domain 和 urls 都是可选的
+        val returnedDomain = responseJSON?.get("domain") as? String
+
         Logger.debug("Returned random: $returnedRandom")
-        Logger.debug("Returned domain: $returnedDomain")
-        
+        if (returnedDomain != null) {
+            Logger.debug("Returned domain: $returnedDomain")
+        }
+
         // 8. Verify signature (sign response without signature field)
         // CRITICAL: Must use sorted keys to match server serialization
         val payloadForSigning = sortedMapOf<String, Any>()
@@ -254,29 +263,105 @@ class FirewallDetector {
                 payloadForSigning[key] = value
             }
         }
-        
-        val payloadJSON = gson.toJson(payloadForSigning)
-        Logger.debug("Payload for verification: $payloadJSON")
-        
-        val payloadData = payloadJSON.toByteArray(Charsets.UTF_8)
+
+        val payloadJSON2 = gson.toJson(payloadForSigning)
+        Logger.debug("Payload for verification: $payloadJSON2")
+
+        val payloadData = payloadJSON2.toByteArray(Charsets.UTF_8)
         val signatureData = Base64.decode(signature, Base64.DEFAULT)
-        
+
         if (!cryptoHelper.verifySignature(payloadData, signatureData)) {
             lastError = "Signature verification failed"
             return null
         }
-        
-        // 10. Verify random matches
+
+        // 9. Verify random matches
         if (returnedRandom != randomBase64) {
             val expectedPrefix = randomBase64.take(10)
             val actualPrefix = returnedRandom.take(10)
             lastError = "Random mismatch: expected: $expectedPrefix..., actual: $actualPrefix..."
             return null
         }
-        
-        // 11. Success!
-        Logger.debug("Verification successful! Using domain: $returnedDomain")
-        return returnedDomain
+
+        // 10. 处理服务器返回的 urls 数组（如果有）
+        val urlsData = responseJSON?.get("urls") as? List<*>
+        if (urlsData != null) {
+            Logger.debug("Server returned ${urlsData.size} URLs in response")
+
+            val urlEntries = mutableListOf<URLEntry>()
+            for (urlDict in urlsData) {
+                val dict = urlDict as? Map<*, *> ?: continue
+                val method = dict["method"] as? String ?: continue
+                val urlStr = dict["url"] as? String ?: continue
+                val store = dict["store"] as? Boolean ?: false
+                urlEntries.add(URLEntry(method = method, url = urlStr, store = store))
+            }
+
+            // 策略：如果有 domain，说明服务器可信，异步存储 store=true 的 URL（不阻塞返回）
+            if (returnedDomain != null) {
+                for (entry in urlEntries) {
+                    if (entry.store) {
+                        val storedEntry = URLEntry(method = entry.method, url = entry.url, store = false)
+                        // 后台异步存储，不阻塞返回
+                        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            Logger.info("后台存储服务器推荐的 URL: ${entry.url} (method: ${entry.method})")
+                            try {
+                                val manager = URLStorageManager.getInstance()
+                                if (manager.addURL(storedEntry)) {
+                                    Logger.info("成功存储 URL: ${entry.url}")
+                                } else {
+                                    Logger.error("存储 URL 失败: ${entry.url}")
+                                }
+                            } catch (e: Exception) {
+                                Logger.error("URLStorageManager not available: ${e.message}")
+                            }
+                        }
+                    }
+                }
+            } else {
+                // 没有 domain，循环检测 urls，只存储检测成功的
+                Logger.debug("No domain in response, checking URLs from server...")
+
+                for (entry in urlEntries) {
+                    Logger.debug("Checking server-provided URL: ${entry.url} (method: ${entry.method})")
+
+                    checkURLEntry(entry, customData, recursionDepth + 1)?.let { domain ->
+                        Logger.info("Server-provided URL succeeded: ${entry.url} -> $domain")
+
+                        // 检测成功，异步存储（不阻塞返回）
+                        if (entry.store) {
+                            val storedEntry = URLEntry(method = entry.method, url = entry.url, store = false)
+                            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                Logger.info("后台存储检测成功的 URL: ${entry.url}")
+                                try {
+                                    URLStorageManager.getInstance().addURL(storedEntry)
+                                } catch (e: Exception) {
+                                    Logger.error("Failed to store URL: ${e.message}")
+                                }
+                            }
+                        }
+
+                        return domain
+                    }
+
+                    Logger.debug("Server-provided URL failed: ${entry.url}, trying next...")
+                    delay(Config.URL_INTERVAL)
+                }
+
+                lastError = "All server-provided URLs failed"
+                return null
+            }
+        }
+
+        // 11. 如果有 domain，返回它
+        if (returnedDomain != null) {
+            Logger.debug("Verification successful! Using domain: $returnedDomain")
+            return returnedDomain
+        }
+
+        // 既没有 domain 也没有 urls
+        lastError = "Response has neither domain nor urls"
+        return null
     }
     
     /**
@@ -348,51 +433,154 @@ class FirewallDetector {
     }
     
     /**
-     * Parse URL entries from content
+     * 智能解析 URL entries（支持多种格式）
      * Supports:
      * 1. *PGFW*base64(URLEntry[] JSON)*PGFW* format (preferred, can embed anywhere)
-     * 2. Direct URLEntry[] JSON array format
-     * 3. Legacy {"urls": [...]} format
+     * 2. HTML with <pre>, <code>, or <script type="application/json"> tags
+     * 3. Direct URLEntry[] JSON array format
+     * 4. Legacy {"urls": [...]} format
      */
     private fun parseURLEntriesJSON(content: String): List<URLEntry>? {
-        // Try to extract *PGFW*base64*PGFW* format first
+        Logger.debug("开始智能解析内容（长度: ${content.length}）")
+
+        // Strategy 1: 优先尝试提取 *PGFW* 标记格式
         extractPGFWContent(content)?.let { extracted ->
-            Logger.debug("Found *PGFW* marker, extracted base64 length: ${extracted.length}")
-            
+            Logger.info("✓ 检测到 *PGFW* 标记格式")
+            Logger.debug("提取的 base64 长度: ${extracted.length}")
+
             // Decode base64
             try {
                 val decodedBytes = Base64.decode(extracted, Base64.DEFAULT)
                 val decodedString = String(decodedBytes, Charsets.UTF_8)
-                Logger.debug("Decoded PGFW content: ${decodedString.take(200)}...")
-                
+                Logger.debug("解码后的内容: ${decodedString.take(200)}...")
+
                 // Parse as URLEntry[] JSON array
-                parseURLEntryArray(decodedString)?.let { return it }
+                parseURLEntryArray(decodedString)?.let {
+                    Logger.info("✓ 成功从 *PGFW* 标记中解析出 ${it.size} 个 URL entries")
+                    return it
+                }
             } catch (e: Exception) {
-                Logger.debug("Failed to decode base64 content: ${e.message}")
+                Logger.debug("Base64 解码失败: ${e.message}")
             }
         }
-        
-        // Fallback 1: Try to parse as direct URLEntry[] JSON array
-        parseURLEntryArray(content)?.let { return it }
-        
-        // Fallback 2: Try legacy {"urls": [...]} format
-        return try {
+
+        // Strategy 2: 检测 HTML 格式
+        if (content.contains("<html", ignoreCase = true) ||
+            content.contains("<!DOCTYPE", ignoreCase = true)) {
+            Logger.info("✓ 检测到 HTML 格式，尝试提取内容...")
+
+            // 2a. 尝试从 <pre> 标签提取
+            extractHTMLTag(content, "pre")?.let { preContent ->
+                Logger.debug("从 <pre> 标签提取到内容")
+                parseURLEntryArray(preContent)?.let {
+                    Logger.info("✓ 成功从 <pre> 标签解析出 ${it.size} 个 URL entries")
+                    return it
+                }
+            }
+
+            // 2b. 尝试从 <code> 标签提取
+            extractHTMLTag(content, "code")?.let { codeContent ->
+                Logger.debug("从 <code> 标签提取到内容")
+                parseURLEntryArray(codeContent)?.let {
+                    Logger.info("✓ 成功从 <code> 标签解析出 ${it.size} 个 URL entries")
+                    return it
+                }
+            }
+
+            // 2c. 尝试从 <script type="application/json"> 提取
+            extractJSONScript(content)?.let { scriptContent ->
+                Logger.debug("从 <script type=\"application/json\"> 提取到内容")
+                parseURLEntryArray(scriptContent)?.let {
+                    Logger.info("✓ 成功从 <script> 标签解析出 ${it.size} 个 URL entries")
+                    return it
+                }
+            }
+
+            Logger.debug("HTML 中未找到可解析的 JSON 内容")
+        }
+
+        // Strategy 3: 尝试直接解析为 URLEntry[] JSON 数组
+        parseURLEntryArray(content)?.let {
+            Logger.info("✓ 成功直接解析为 URLEntry[] 数组（${it.size} 个 entries）")
+            return it
+        }
+
+        // Strategy 4: 尝试旧版 {"urls": [...]} 格式
+        try {
             val gson = Gson()
             val json = gson.fromJson(content, Map::class.java) as? Map<*, *>
             val urlsArray = json?.get("urls") as? List<*>
-            
+
             urlsArray?.mapNotNull { urlDict ->
                 (urlDict as? Map<*, *>)?.let {
                     val method = it["method"] as? String
                     val url = it["url"] as? String
+                    val store = it["store"] as? Boolean ?: false
                     if (method != null && url != null) {
-                        URLEntry(method, url)
+                        URLEntry(method, url, store)
                     } else null
                 }
-            }?.takeIf { it.isNotEmpty() }
+            }?.takeIf { it.isNotEmpty() }?.let {
+                Logger.info("✓ 成功解析旧版 {\"urls\": [...]} 格式（${it.size} 个 entries）")
+                return it
+            }
         } catch (e: Exception) {
-            null
+            Logger.debug("旧版格式解析失败: ${e.message}")
         }
+
+        Logger.warning("所有解析策略均失败")
+        return null
+    }
+
+    /**
+     * 从 HTML 中提取指定标签的内容
+     * 支持 HTML 实体解码
+     */
+    private fun extractHTMLTag(html: String, tag: String): String? {
+        try {
+            // 匹配 <tag...>content</tag>，支持标签属性
+            val pattern = Regex("<$tag[^>]*>(.*?)</$tag>", RegexOption.DOT_MATCHES_ALL or RegexOption.IGNORE_CASE)
+            val match = pattern.find(html) ?: return null
+
+            val content = match.groupValues[1]
+
+            // HTML 实体解码
+            return decodeHTMLEntities(content)
+        } catch (e: Exception) {
+            Logger.debug("提取 HTML 标签 <$tag> 失败: ${e.message}")
+            return null
+        }
+    }
+
+    /**
+     * 从 HTML 中提取 <script type="application/json"> 的内容
+     */
+    private fun extractJSONScript(html: String): String? {
+        try {
+            val pattern = Regex(
+                "<script[^>]+type=[\"']application/json[\"'][^>]*>(.*?)</script>",
+                RegexOption.DOT_MATCHES_ALL or RegexOption.IGNORE_CASE
+            )
+            val match = pattern.find(html) ?: return null
+
+            return match.groupValues[1].trim()
+        } catch (e: Exception) {
+            Logger.debug("提取 JSON script 失败: ${e.message}")
+            return null
+        }
+    }
+
+    /**
+     * HTML 实体解码
+     */
+    private fun decodeHTMLEntities(text: String): String {
+        return text
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&amp;", "&")
+            .trim()
     }
     
     /**

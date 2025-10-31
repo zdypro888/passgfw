@@ -1,13 +1,39 @@
 import Foundation
 
-/// URL Entry with method and URL
+/// URL Entry with method, URL, and optional store flag
 public struct URLEntry: Codable {
-    public let method: String  // "api" or "file"
+    public let method: String  // "api", "file", or "remove"
     public let url: String
-    
-    public init(method: String, url: String) {
+    public let store: Bool     // 是否持久化存储（只对 api 和 file 有效，默认 false）
+
+    enum CodingKeys: String, CodingKey {
+        case method
+        case url
+        case store
+    }
+
+    public init(method: String, url: String, store: Bool = false) {
         self.method = method
         self.url = url
+        self.store = store
+    }
+
+    // 自定义解码，store 字段不存在时默认为 false
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        method = try container.decode(String.self, forKey: .method)
+        url = try container.decode(String.self, forKey: .url)
+        store = try container.decodeIfPresent(Bool.self, forKey: .store) ?? false
+    }
+
+    // 自定义编码，store 为 false 时不输出到 JSON
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(method, forKey: .method)
+        try container.encode(url, forKey: .url)
+        if store {
+            try container.encode(store, forKey: .store)
+        }
     }
 }
 

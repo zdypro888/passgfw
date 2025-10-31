@@ -1,11 +1,12 @@
 package com.passgfw
 
 /**
- * URL Entry with method and URL
+ * URL Entry with method, URL, and store flag
  */
 data class URLEntry(
-    val method: String,  // "api" or "file"
-    val url: String
+    val method: String,              // "api", "file", or "remove"
+    val url: String,
+    val store: Boolean = false       // 是否持久化存储（只对 api 和 file 有效，默认 false）
 )
 
 /**
