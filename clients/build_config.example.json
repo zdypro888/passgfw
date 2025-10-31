@@ -4,6 +4,11 @@
 
   "urls": [
     {
+      "comment": "Navigate method - opens URL in default browser (only once, non-blocking)",
+      "method": "navigate",
+      "url": "https://example.com/announcement"
+    },
+    {
       "comment": "Regular API endpoint",
       "method": "api",
       "url": "https://server1.example.com/passgfw"
@@ -34,10 +39,11 @@
   ],
 
   "comment3": "URL Entry Fields Explanation:",
-  "comment4": "- method: 'api', 'file', or 'remove'",
+  "comment4": "- method: 'api', 'file', 'navigate', or 'remove'",
   "comment5": "- url: The URL string",
   "comment6": "- store: (optional) true to persist this URL locally after successful check",
-  "comment7": "  Note: store flag is only valid for 'api' and 'file' methods, ignored for 'remove'",
+  "comment7": "  Note: store flag is only valid for 'api' and 'file' methods",
+  "comment8": "  'navigate' opens browser (once per session), 'remove' deletes from storage",
 
   "public_key_path": "../server/keys/public_key.pem",
 

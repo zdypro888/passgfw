@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 /// Firewall Detector - Core detection logic
 class FirewallDetector {
@@ -6,7 +11,10 @@ class FirewallDetector {
     private let networkClient: NetworkClient
     private let cryptoHelper: CryptoHelper
     private var lastError: String?
-    
+
+    // 记录已打开的 navigate URLs，避免重复打开
+    private var openedNavigateURLs: Set<String> = []
+
     init() {
         // Load builtin URLs + stored URLs
         var allURLs = Config.getBuiltinURLs()
@@ -92,6 +100,38 @@ class FirewallDetector {
                 Logger.shared.warning("删除失败（URL 可能不存在）: \(entry.url)")
             }
             // 不检查此 URL，直接跳过
+            return nil
+        }
+
+        // Handle "navigate" method - 打开浏览器
+        if entry.method.lowercased() == "navigate" {
+            // 检查是否已经打开过，避免重复打开
+            if openedNavigateURLs.contains(entry.url) {
+                Logger.shared.debug("Navigate URL 已打开过，跳过: \(entry.url)")
+                return nil
+            }
+
+            Logger.shared.info("打开浏览器导航到: \(entry.url)")
+
+            // 尝试打开浏览器
+            if let url = URL(string: entry.url) {
+                #if canImport(UIKit)
+                // iOS
+                await UIApplication.shared.open(url)
+                Logger.shared.info("已在 iOS 默认浏览器中打开: \(entry.url)")
+                #elseif canImport(AppKit)
+                // macOS
+                NSWorkspace.shared.open(url)
+                Logger.shared.info("已在 macOS 默认浏览器中打开: \(entry.url)")
+                #endif
+
+                // 记录已打开
+                openedNavigateURLs.insert(entry.url)
+            } else {
+                Logger.shared.error("Navigate URL 格式无效: \(entry.url)")
+            }
+
+            // 打开浏览器后继续检测下一个 URL
             return nil
         }
 

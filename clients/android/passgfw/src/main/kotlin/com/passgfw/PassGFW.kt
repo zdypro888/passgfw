@@ -1,15 +1,16 @@
 package com.passgfw
 
+import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
  * PassGFW - Firewall Detection Library (Android)
- * 
+ *
  * Main entry point for the PassGFW library.
  */
-class PassGFW {
-    private val detector = FirewallDetector()
+class PassGFW(context: Context) {
+    private val detector = FirewallDetector(context)
     
     /**
      * Get the final available server domain

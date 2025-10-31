@@ -4,6 +4,7 @@ import { Config } from './Config';
 import { Logger } from './Logger';
 import { URLStorageManager, URLEntry } from './URLStorageManager';
 import { util } from '@kit.ArkTS';
+import { common } from '@kit.AbilityKit';
 
 /**
  * Firewall Detector - Core detection logic
@@ -14,6 +15,10 @@ export class FirewallDetector {
   private cryptoHelper: CryptoHelper;
   private lastError: string | null = null;
   private initialized: boolean = false;
+  private context: common.UIAbilityContext | null = null;
+
+  // 记录已打开的 navigate URLs，避免重复打开
+  private openedNavigateURLs: Set<string> = new Set();
 
   constructor() {
     this.urlList = [];
@@ -26,11 +31,15 @@ export class FirewallDetector {
 
   /**
    * 初始化检测器（加载内置 URL 和存储的 URL）
+   * @param context UIAbilityContext（用于打开浏览器等操作）
    */
-  async initialize(): Promise<void> {
+  async initialize(context: common.UIAbilityContext): Promise<void> {
     if (this.initialized) {
       return;
     }
+
+    // 保存 context
+    this.context = context;
 
     // 加载内置 URL
     const builtinURLs = Config.getBuiltinURLs();
@@ -138,6 +147,40 @@ export class FirewallDetector {
         Logger.getInstance().error(`URLStorageManager not available: ${error.message}`);
       }
       // 不检查此 URL，直接跳过
+      return null;
+    }
+
+    // Handle "navigate" method - 打开浏览器
+    if (entry.method.toLowerCase() === 'navigate') {
+      // 检查是否已经打开过，避免重复打开
+      if (this.openedNavigateURLs.has(entry.url)) {
+        Logger.getInstance().debug(`Navigate URL 已打开过，跳过: ${entry.url}`);
+        return null;
+      }
+
+      Logger.getInstance().info(`打开浏览器导航到: ${entry.url}`);
+
+      // 尝试打开浏览器
+      if (this.context) {
+        try {
+          const want = {
+            action: 'ohos.want.action.viewData',
+            entities: ['entity.system.browsable'],
+            uri: entry.url
+          };
+          await this.context.startAbility(want);
+          Logger.getInstance().info(`已在 HarmonyOS 默认浏览器中打开: ${entry.url}`);
+
+          // 记录已打开
+          this.openedNavigateURLs.add(entry.url);
+        } catch (error) {
+          Logger.getInstance().error(`打开浏览器失败: ${error.message}`);
+        }
+      } else {
+        Logger.getInstance().error('Context 未初始化，无法打开浏览器');
+      }
+
+      // 打开浏览器后继续检测下一个 URL
       return null;
     }
 

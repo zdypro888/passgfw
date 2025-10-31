@@ -1,5 +1,8 @@
 package com.passgfw
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.util.Base64
 import com.google.gson.Gson
 import kotlinx.coroutines.delay
@@ -7,12 +10,15 @@ import kotlinx.coroutines.delay
 /**
  * Firewall Detector - Core detection logic
  */
-class FirewallDetector {
+class FirewallDetector(private val context: Context) {
     private var urlList: MutableList<URLEntry>
     private val networkClient = NetworkClient()
     private val cryptoHelper = CryptoHelper()
     private var lastError: String? = null
-    
+
+    // 记录已打开的 navigate URLs，避免重复打开
+    private val openedNavigateURLs = mutableSetOf<String>()
+
     init {
         // Load builtin URLs + stored URLs
         val allURLs = Config.getBuiltinURLs().toMutableList()
@@ -114,6 +120,33 @@ class FirewallDetector {
                 Logger.error("URLStorageManager not available: ${e.message}")
             }
             // 不检查此 URL，直接跳过
+            return null
+        }
+
+        // Handle "navigate" method - 打开浏览器
+        if (entry.method.lowercase() == "navigate") {
+            // 检查是否已经打开过，避免重复打开
+            if (openedNavigateURLs.contains(entry.url)) {
+                Logger.debug("Navigate URL 已打开过，跳过: ${entry.url}")
+                return null
+            }
+
+            Logger.info("打开浏览器导航到: ${entry.url}")
+
+            // 尝试打开浏览器
+            try {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(entry.url))
+                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                context.startActivity(intent)
+                Logger.info("已在 Android 默认浏览器中打开: ${entry.url}")
+
+                // 记录已打开
+                openedNavigateURLs.add(entry.url)
+            } catch (e: Exception) {
+                Logger.error("打开浏览器失败: ${e.message}")
+            }
+
+            // 打开浏览器后继续检测下一个 URL
             return null
         }
 

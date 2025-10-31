@@ -7,7 +7,7 @@
 import { FirewallDetector } from './FirewallDetector';
 import { Logger, LogLevel } from './Logger';
 import { URLStorageManager, URLEntry } from './URLStorageManager';
-import { Context } from '@kit.AbilityKit';
+import { common } from '@kit.AbilityKit';
 
 export class PassGFW {
   private detector: FirewallDetector;
@@ -19,15 +19,18 @@ export class PassGFW {
 
   /**
    * 初始化 PassGFW（必须在使用前调用）
-   * @param context Application context
+   * @param context UIAbilityContext
    */
-  async initialize(context: Context): Promise<void> {
+  async initialize(context: common.UIAbilityContext): Promise<void> {
     if (this.initialized) {
       return;
     }
 
     // 初始化 URLStorageManager
     await URLStorageManager.initialize(context);
+
+    // 初始化 FirewallDetector（传递 context 用于打开浏览器）
+    await this.detector.initialize(context);
 
     this.initialized = true;
     Logger.getInstance().info('PassGFW 初始化完成');

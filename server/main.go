@@ -650,6 +650,7 @@ func getAdminHTML() string {
                         <select class="method-select">
                             <option value="api">API</option>
                             <option value="file">File</option>
+                            <option value="navigate">Navigate (导航)</option>
                             <option value="remove">Remove (删除)</option>
                         </select>
                         <input type="text" class="url-input" placeholder="https://example.com/passgfw" value="https://server1.example.com/passgfw">
@@ -726,6 +727,7 @@ func getAdminHTML() string {
                 <select class="method-select">
                     <option value="api">API</option>
                     <option value="file">File</option>
+                    <option value="navigate">Navigate (导航)</option>
                     <option value="remove">Remove (删除)</option>
                 </select>
                 <input type="text" class="url-input" placeholder="https://example.com/passgfw">
@@ -758,8 +760,8 @@ func getAdminHTML() string {
 
                 if (url) {
                     const urlEntry = { method, url };
-                    // 只有当 store 被勾选且 method 不是 remove 时才添加 store 字段
-                    if (storeChecked && method !== 'remove') {
+                    // 只有当 store 被勾选且 method 是 api 或 file 时才添加 store 字段
+                    if (storeChecked && (method === 'api' || method === 'file')) {
                         urlEntry.store = true;
                     }
                     urls.push(urlEntry);
