@@ -29,12 +29,19 @@ type PassGFWRequest struct {
 	Data string `json:"data" binding:"required"` // Base64 encoded encrypted data
 }
 
+// URL Entry structure
+type URLEntry struct {
+	Method string `json:"method"` // "api" or "file"
+	URL    string `json:"url"`    // URL string
+}
+
 // Response structure
-// The "data" field contains a JSON string with server response:
-// {"random": "<original_nonce>", "domain": "<server_domain>"}
+// Signature is calculated on the JSON of this struct WITHOUT the signature field
 type PassGFWResponse struct {
-	Data      string `json:"data"`      // JSON string: {"random": "...", "domain": "..."}
-	Signature string `json:"signature"` // Base64 encoded RSA-SHA256 signature of data
+	Random    string     `json:"random"`              // Echoed nonce from client
+	Domain    string     `json:"domain,omitempty"`    // Server domain (for API response)
+	URLs      []URLEntry `json:"urls,omitempty"`      // URL list (for file response)
+	Signature string     `json:"signature,omitempty"` // Base64 encoded RSA-SHA256 signature
 }
 
 // Error response structure
