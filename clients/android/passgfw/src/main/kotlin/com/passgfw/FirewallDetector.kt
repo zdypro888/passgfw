@@ -195,10 +195,17 @@ class FirewallDetector {
         Logger.debug("Returned domain: $returnedDomain")
         
         // 8. Verify signature (sign response without signature field)
-        val payloadForSigning = responseJSON.toMutableMap()
-        payloadForSigning.remove("signature")
+        // CRITICAL: Must use sorted keys to match server serialization
+        val payloadForSigning = sortedMapOf<String, Any>()
+        responseJSON.forEach { (key, value) ->
+            if (key != "signature") {
+                payloadForSigning[key] = value
+            }
+        }
         
         val payloadJSON = gson.toJson(payloadForSigning)
+        Logger.debug("Payload for verification: $payloadJSON")
+        
         val payloadData = payloadJSON.toByteArray(Charsets.UTF_8)
         val signatureData = Base64.decode(signature, Base64.DEFAULT)
         

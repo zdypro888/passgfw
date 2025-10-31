@@ -185,11 +185,20 @@ class FirewallDetector {
         Logger.shared.debug("Returned domain: \(returnedDomain)")
         
         // 8. Verify signature (sign response without signature field)
+        // CRITICAL: Must use sorted keys to match server serialization
         var payloadForSigning = responseJSON
         payloadForSigning.removeValue(forKey: "signature")
         
-        guard let payloadData = try? JSONSerialization.data(withJSONObject: payloadForSigning, options: [.sortedKeys]),
-              let signatureData = Data(base64Encoded: signature),
+        guard let payloadData = try? JSONSerialization.data(withJSONObject: payloadForSigning, options: [.sortedKeys]) else {
+            lastError = "Failed to serialize payload for verification"
+            return nil
+        }
+        
+        if let payloadString = String(data: payloadData, encoding: .utf8) {
+            Logger.shared.debug("Payload for verification: \(payloadString)")
+        }
+        
+        guard let signatureData = Data(base64Encoded: signature),
               cryptoHelper.verifySignature(data: payloadData, signature: signatureData) else {
             lastError = "Signature verification failed"
             return nil

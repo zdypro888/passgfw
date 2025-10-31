@@ -195,8 +195,15 @@ func handlePassGFW(c *gin.Context) {
 		Domain: realDomain,
 	}
 
-	// Marshal response (without signature) to JSON for signing
-	responseJSON, err := json.Marshal(response)
+	// CRITICAL: Create ordered map for consistent JSON serialization across platforms
+	// All platforms must use alphabetically sorted keys for signature verification
+	payloadMap := map[string]interface{}{
+		"domain": realDomain,
+		"random": payload.Nonce,
+	}
+
+	// Marshal response (sorted keys) for signing
+	responseJSON, err := json.Marshal(payloadMap)
 	if err != nil {
 		log.Printf("❌ Failed to marshal response JSON: %v", err)
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
@@ -204,6 +211,8 @@ func handlePassGFW(c *gin.Context) {
 		})
 		return
 	}
+
+	log.Printf("   Payload for signing: %s", string(responseJSON))
 
 	// Sign the response JSON
 	hashed := sha256.Sum256(responseJSON)
@@ -222,7 +231,7 @@ func handlePassGFW(c *gin.Context) {
 	response.Signature = signatureBase64
 
 	c.JSON(http.StatusOK, response)
-	log.Printf("📤 Response sent: %s", string(responseJSON))
+	log.Printf("✅ Response sent with signature")
 }
 
 // Get real server domain based on configured domain and client data
