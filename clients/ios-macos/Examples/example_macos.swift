@@ -146,7 +146,7 @@ func example3_ErrorHandling() async {
 
     // 注意: 这会循环重试，实际使用中应该设置超时
     // 这里我们只等待几秒钟然后退出
-    let result = await withCheckedContinuation { continuation in
+    let result: String? = await withCheckedContinuation { continuation in
         Task {
             // 在后台执行检测
             let _ = await client.getFinalServer(customData: "error-example")

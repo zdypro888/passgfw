@@ -13,11 +13,20 @@ let package = Package(
         .library(
             name: "PassGFW",
             targets: ["PassGFW"]),
+        .executable(
+            name: "PassGFWExample",
+            targets: ["PassGFWExample"])
     ],
     targets: [
         .target(
             name: "PassGFW",
-            dependencies: [])
+            dependencies: []),
+        .executableTarget(
+            name: "PassGFWExample",
+            dependencies: ["PassGFW"],
+            path: "Examples",
+            exclude: ["example_ios.swift"],
+            sources: ["example_macos.swift"])
     ]
 )
 
