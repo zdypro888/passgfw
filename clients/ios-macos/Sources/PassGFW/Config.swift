@@ -46,12 +46,11 @@ struct Config {
     /// These URLs are generated during build from build_config.json
     static func getBuiltinURLs() -> [URLEntry] {
         return [
-            URLEntry(method: "api", url: "https://server1.example.com/passgfw"),
-            URLEntry(method: "api", url: "https://server2.example.com/passgfw"),
-            URLEntry(method: "file", url: "https://cdn.example.com/list.txt")
+            URLEntry(method: "api", url: "http://localhost:8080/passgfw"),
+            URLEntry(method: "api", url: "http://127.0.0.1:8080/passgfw")
         ]
     }
-    
+
     /// Get public key (PEM format)
     /// This key is embedded during build from ../server/keys/public_key.pem
     static func getPublicKey() -> String {

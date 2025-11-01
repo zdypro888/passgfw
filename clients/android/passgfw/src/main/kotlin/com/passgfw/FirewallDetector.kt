@@ -5,7 +5,10 @@ import android.content.Intent
 import android.net.Uri
 import android.util.Base64
 import com.google.gson.Gson
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Firewall Detector - Core detection logic
@@ -290,10 +293,11 @@ class FirewallDetector(private val context: Context) {
 
         // 8. Verify signature (sign response without signature field)
         // CRITICAL: Must use sorted keys to match server serialization
-        val payloadForSigning = sortedMapOf<String, Any>()
+        val payloadForSigning = sortedMapOf<String, Any?>()
         responseJSON.forEach { (key, value) ->
-            if (key != "signature") {
-                payloadForSigning[key] = value
+            val keyStr = key as? String ?: return@forEach
+            if (keyStr != "signature") {
+                payloadForSigning[keyStr] = value
             }
         }
 
@@ -572,10 +576,10 @@ class FirewallDetector(private val context: Context) {
     private fun extractHTMLTag(html: String, tag: String): String? {
         try {
             // 匹配 <tag...>content</tag>，支持标签属性
-            val pattern = Regex("<$tag[^>]*>(.*?)</$tag>", RegexOption.DOT_MATCHES_ALL or RegexOption.IGNORE_CASE)
+            val pattern = Regex("<$tag[^>]*>(.*?)</$tag>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
             val match = pattern.find(html) ?: return null
 
-            val content = match.groupValues[1]
+            val content = match.groups[1]?.value ?: return null
 
             // HTML 实体解码
             return decodeHTMLEntities(content)
@@ -592,11 +596,11 @@ class FirewallDetector(private val context: Context) {
         try {
             val pattern = Regex(
                 "<script[^>]+type=[\"']application/json[\"'][^>]*>(.*?)</script>",
-                RegexOption.DOT_MATCHES_ALL or RegexOption.IGNORE_CASE
+                setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
             )
             val match = pattern.find(html) ?: return null
 
-            return match.groupValues[1].trim()
+            return match.groups[1]?.value?.trim()
         } catch (e: Exception) {
             Logger.debug("提取 JSON script 失败: ${e.message}")
             return null

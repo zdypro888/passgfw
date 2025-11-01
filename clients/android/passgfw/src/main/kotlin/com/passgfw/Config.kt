@@ -20,10 +20,11 @@ object Config {
      */
     fun getBuiltinURLs(): List<URLEntry> {
         return listOf(
-            URLEntry(method = "api", url = "http://localhost:8080/passgfw")
+            URLEntry(method = "api", url = "http://localhost:8080/passgfw"),
+            URLEntry(method = "api", url = "http://127.0.0.1:8080/passgfw")
         )
     }
-    
+
     /**
      * Get public key (PEM format)
      * This key is embedded during build from ../server/keys/public_key.pem
@@ -31,14 +32,13 @@ object Config {
     fun getPublicKey(): String {
         return """
 -----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyLq8eCvXJ4kPxMd0c3oK
-heUSkC7Kj3M47VfDoe/gIw7mtunqwPZlVY3warLTdvbpWgDb8gExRs+HzbVSX3FQ
-x4LJD7yPOHn6wF/VqV5WzVp4Y3nMUx0dYYj3R4qJDnQr0yE3J6aDf8T8VJ/cLqGK
-K+Q8Z3F5J8P7L6vXR5R6Y1LH4gT8qQp6h4kH6L3F5Y9J8R7qQ3p6H4kF8L6p5Y9J
-8R7L6F5Y9J8R7L6F5Y9J8R7L6F5Y9J8R7L6F5Y9J8R7L6F5Y9J8R7L6F5Y9J8R7
-L6F5Y9J8R7L6F5Y9J8R7L6F5Y9J8R7L6F5Y9J8R7L6F5Y9J8R7L6F5Y9J8R7L6
-F5Y9J8R7L6F5Y9J8R7L6F5Y9J8R7L6F5Y9J8R7L6F5Y9J8R7L6F5Y9J8R7L6F5
-QIDAQAB
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAywXbsHaPw9FWFQXVys4a
+xABweET6hibzzAup+84Dacf3mUfGFYu6CBTuYni/x4r+WeiskiLQJSm1Bk80uWnn
+OXcNRA7/LrxhXO91A+uwRgByO3PtkSODm9MAFhSCD+HUMdlLaeokQfK+BSLxPB9K
+NzkU7HmdAVmLkqkyLxzXMg6BSK9dFoaYha/zz2ZpujCtGbk2FOSYBa+6zLFCnYer
+URr4lR/9KAXM0Jjbc/6QdAoGcCSpFDMWJEFAwPPBAYot8XnqueTXYf9BRJHVPPj/
+f9eGmPN6edFdnwdZev0a7KlxhgPIH2dBng9rPrG10vcbsf0w1+0JYI53jQB8vglG
+rwIDAQAB
 -----END PUBLIC KEY-----
         """.trimIndent()
     }

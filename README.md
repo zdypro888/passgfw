@@ -15,8 +15,11 @@ PassGFW 帮助应用通过测试多个服务器端点（使用 RSA 加密和签�
 - 🌍 支持 iOS、macOS、Android、HarmonyOS
 - 📱 平台原生实现（Swift、Kotlin、ArkTS）
 - 🔄 自动重试，支持动态 URL 列表
+- 🌐 Navigate 方法（静默打开浏览器）
+- 💾 加密存储（自动持久化可用服务器）
 - 🪶 轻量级（无第三方依赖）
 - ⚡ 高性能 Go 服务器
+- 🔑 内置密钥（无需外部配置文件）
 
 ---
 
@@ -29,10 +32,11 @@ clients/
 ├── ios-macos/         Swift 实现
 │   ├── Package.swift         Swift Package Manager
 │   ├── Sources/PassGFW/      核心代码 (~1200 行)
-│   └── Examples/             示例程序
+│   └── Examples/             交互式示例程序（可执行）
 │
-├── android/           Kotlin 实现  
+├── android/           Kotlin 实现
 │   ├── passgfw/              Library 模块
+│   ├── app/                  测试应用（APK）
 │   ├── build.gradle.kts      Gradle 配置
 │   └── src/main/kotlin/      核心代码 (~1000 行)
 │
@@ -41,10 +45,10 @@ clients/
 │   ├── build-profile.json5   项目配置
 │   └── src/main/ets/         核心代码 (~1100 行)
 │
-└── TESTING_GUIDE.md   测试指南
+└── build.sh           统一构建脚本（支持clean、verify、parallel）
 
-server/                Go 服务器
-├── main.go                   Gin 框架实现
+server/                Go 服务器（内置密钥）
+├── main.go                   Gin 框架实现 + Web管理界面
 └── go.mod                    依赖管理
 ```
 
@@ -64,19 +68,53 @@ vim build_config.json  # 填入你的服务器 URLs
 ```json
 {
   "urls": [
-    "https://server1.example.com/passgfw",
-    "https://server2.example.com/passgfw"
+    {
+      "method": "api",
+      "url": "https://server1.example.com/passgfw"
+    },
+    {
+      "method": "api",
+      "url": "https://server2.example.com/passgfw",
+      "store": true
+    },
+    {
+      "method": "navigate",
+      "url": "https://github.com/yourproject"
+    },
+    {
+      "method": "file",
+      "url": "https://cdn.example.com/list.txt",
+      "store": true
+    }
   ],
   "public_key_path": "../server/keys/public_key.pem"
 }
 ```
 
-### 2. 启动服务器
+**Method 说明：**
+- `api` - API检测（返回服务器域名）
+- `file` - 文件列表（返回URL列表）
+- `navigate` - 打开浏览器（静默，每个URL只打开一次）
+- `remove` - 从存储中删除URL
+- `store: true` - 检测成功后持久化存储（加密）
+
+### 2. 启动服务器（内置密钥，无需配置）
 
 ```bash
 cd server
-go run main.go --port 8080 --domain localhost:8080
+
+# 方法1：直接运行
+go run main.go --port 8080 --domain your-domain.com:443
+
+# 方法2：编译后运行
+go build -o passgfw-server main.go
+./passgfw-server --port 8080
+
+# 访问管理界面
+open http://localhost:8080/admin
 ```
+
+服务器会自动使用内置的RSA密钥，无需外部配置文件！
 
 ### 3. 构建客户端
 
@@ -84,19 +122,21 @@ go run main.go --port 8080 --domain localhost:8080
 cd clients
 
 # iOS/macOS（Swift Package）
-./build.sh ios              # 构建并注入配置
-./build.sh ios --clean      # 只清理
+./build.sh ios              # 构建 Library + 可执行示例
+./build.sh ios --clean      # 清理构建产物
 
 # Android（Kotlin/Gradle）
-./build.sh android          # 构建 AAR
-./build.sh android --clean  # 只清理
+./build.sh android          # 构建 AAR库 + 测试APK
+./build.sh android --clean  # 清理（包括.gradle、.idea等）
 
 # HarmonyOS（ArkTS）
-./build.sh harmony          # 更新配置（需 DevEco Studio 构建）
-./build.sh harmony --clean  # 只清理
+./build.sh harmony          # 更新配置（需 DevEco Studio 构建HAR）
+./build.sh harmony --clean  # 清理
 
-# 构建所有平台
-./build.sh all
+# 高级选项
+./build.sh all              # 构建所有平台
+./build.sh all --parallel   # 并行构建（更快）
+./build.sh ios --verify     # 构建并验证产物
 ```
 
 ### 4. 在项目中使用
@@ -108,55 +148,64 @@ cd clients
 
 #### Android（Android Studio）
 1. 将 `clients/android/passgfw` 作为模块导入
-2. 或使用生成的 AAR：`clients/android/passgfw/build/outputs/aar/`
+2. 或使用生成的 AAR：`clients/android/passgfw/build/outputs/aar/passgfw-release.aar`
+3. 测试APK：`clients/android/app/build/outputs/apk/debug/app-debug.apk`
 
 #### HarmonyOS（DevEco Studio）
 1. 打开 `clients/harmony/` 项目
 2. 构建生成 HAR 包
 
-**详细文档：** 
-- 完整测试指南：`clients/TESTING_GUIDE.md`
-- iOS/macOS 详细说明：`clients/ios-macos/README.md`
+**详细文档：**
+- iOS/macOS：`clients/ios-macos/README.md`
+- Android：`clients/android/README.md`
+- HarmonyOS：`clients/harmony/README.md`
+- Server：`server/README.md`
 
 ---
 
 ## 📱 平台支持
 
-| 平台 | 语言 | 最低版本 | 状态 |
-|------|------|----------|------|
-| **iOS** | Swift | iOS 13+ | ✅ 完成 |
-| **macOS** | Swift | macOS 10.15+ | ✅ 完成 |
-| **Android** | Kotlin | API 24+ | ✅ 完成 |
-| **HarmonyOS** | ArkTS | API 10+ | ✅ 完成 |
+| 平台 | 语言 | 最低版本 | 构建工具 | 状态 |
+|------|------|----------|----------|------|
+| **iOS** | Swift 5.9 | iOS 13+ | Swift Package Manager | ✅ 完成 |
+| **macOS** | Swift 5.9 | macOS 10.15+ | Swift Package Manager | ✅ 完成 |
+| **Android** | Kotlin 1.9 | API 24+ (Android 7.0+) | Gradle 8.14 + Java 24 | ✅ 完成 |
+| **HarmonyOS** | ArkTS | API 10+ | DevEco Studio | ✅ 完成 |
+| **Server** | Go 1.21+ | - | go build | ✅ 完成 |
 
 ---
 
-## 🔐 密钥生成
+## 🔐 密钥管理
 
-服务器需要 RSA 密钥对：
+**服务器和客户端都已内置密钥对**，开箱即用！
+
+如需自定义密钥：
 
 ```bash
-cd server
-# 密钥会自动生成到 keys/ 目录
-# 或手动生成：
-mkdir -p keys
-openssl genrsa -out keys/private_key.pem 2048
-openssl rsa -in keys/private_key.pem -pubout -out keys/public_key.pem
+cd server/keys
+# 生成新的密钥对
+openssl genrsa -out private_key.pem 2048
+openssl rsa -in private_key.pem -pubout -out public_key.pem
+
+# 重新构建客户端（会自动嵌入新公钥）
+cd ../../clients
+./build.sh all
 ```
 
-**注意：**
-- `private_key.pem` - 服务器私钥（**勿泄露**）
-- `public_key.pem` - 公钥（嵌入客户端）
+**密钥说明：**
+- `private_key.pem` - 服务器私钥（**勿泄露**，已内置到server）
+- `public_key.pem` - 公钥（已内置到所有客户端）
+- 内置密钥仅用于开发测试，生产环境请生成新密钥！
 
 ---
 
 ## 📚 文档
 
-- **测试指南**: [clients/TESTING_GUIDE.md](clients/TESTING_GUIDE.md)
 - **iOS/macOS**: [clients/ios-macos/README.md](clients/ios-macos/README.md)
 - **Android**: [clients/android/README.md](clients/android/README.md)
 - **HarmonyOS**: [clients/harmony/README.md](clients/harmony/README.md)
 - **服务器**: [server/README.md](server/README.md)
+- **安全与权限**: [docs/SECURITY_AND_PERMISSIONS.md](docs/SECURITY_AND_PERMISSIONS.md)
 
 ---
 
@@ -296,23 +345,49 @@ https://server2.com/passgfw
 
 ## 🧪 测试
 
-```bash
-# 1. 启动服务器
-cd server && go run main.go --port 8080 --domain localhost:8080
+### 快速测试
 
-# 2. 测试 iOS/macOS（新终端）
-cd clients/ios-macos/Examples
-swift example_macos.swift
+```bash
+# 1. 编译并启动服务器
+cd server
+go build -o passgfw-server main.go
+./passgfw-server
+
+# 2. 测试 macOS（新终端）
+cd clients
+./build.sh ios
+cd ios-macos/.build/release
+./PassGFWExample    # 交互式菜单
 
 # 3. 测试 Android
-cd clients/android
-./gradlew :passgfw:test
+cd clients
+./build.sh android
+# 安装APK到设备
+adb install android/app/build/outputs/apk/debug/app-debug.apk
+# 或在Android Studio中运行
 
 # 4. 测试 HarmonyOS
-# 使用 DevEco Studio
+# 使用 DevEco Studio 打开 clients/harmony 运行
 ```
 
-**完整测试指南：** `clients/TESTING_GUIDE.md`
+### 测试输出示例
+
+**macOS 示例程序：**
+```
+=== PassGFW macOS 示例程序 ===
+
+选择示例:
+  1. 基本防火墙检测
+  2. 自定义 URL 列表
+  3. 错误处理演示
+  4. 动态添加 URL
+  直接按 Enter: 运行所有示例
+```
+
+**Android 测试应用：**
+- 3个测试按钮：基本检测、自定义URL、动态添加
+- 实时状态显示
+- 找到的服务器域名显示
 
 ---
 
@@ -338,18 +413,28 @@ go run main.go --port 3000
 
 ```bash
 # iOS/macOS
-cd clients/ios-macos
-swift package clean
-swift build
+cd clients
+./build.sh ios --clean
+./build.sh ios
 
 # Android
-cd clients/android
-./gradlew clean
-./gradlew build
+cd clients
+./build.sh android --clean
+./build.sh android
 
 # HarmonyOS
+cd clients
+./build.sh harmony --clean
 # DevEco Studio > Build > Clean Project
 ```
+
+### Android: Java版本不兼容
+
+如果出现 "Can't use Java XX and Gradle XX" 错误：
+
+- **Java 24+** 需要 **Gradle 8.14+**
+- 项目已配置 Gradle 8.14，支持 Java 24
+- 重新导入项目即可解决
 
 ---
 
@@ -383,17 +468,29 @@ MIT License
 
 ## 🏷️ 版本历史
 
-- **v1.0** (2025-10-30) - 初始发布
-  - ✅ 完整的 3 平台实现
-  - ✅ RSA 加密和签名验证
-  - ✅ 动态 URL 列表支持
-  - ✅ 自动重试机制
-  - ✅ 统一日志系统
+### v2.0 (2025-11-01)
+- ✨ **Navigate方法** - 静默打开浏览器（iOS/macOS/Android/HarmonyOS）
+- 💾 **加密存储** - 自动持久化可用服务器（AndroidX Security、Keychain）
+- 🔑 **内置密钥** - Server和客户端都内置密钥对，开箱即用
+- 🛠️ **增强构建脚本** - 支持clean、verify、parallel等选项
+- 📱 **macOS可执行示例** - 交互式菜单程序（244行）
+- 📱 **Android测试APK** - 完整的测试应用（MainActivity + 3个示例）
+- 🔧 **Gradle 8.14** - 支持Java 24
+- 🧹 **智能清理** - 彻底清理构建产物和IDE配置
+- 📝 **URL Entry格式** - 新增method、url、store字段
+- 🌐 **Web管理界面** - Server端提供URL列表生成工具
+
+### v1.0 (2025-10-30)
+- ✅ 完整的 4 平台实现（iOS、macOS、Android、HarmonyOS）
+- ✅ RSA 2048加密 + SHA256签名验证
+- ✅ 动态 URL 列表支持
+- ✅ 自动重试机制
+- ✅ 统一日志系统
 
 ---
 
-**状态：** ✅ 所有平台完成并测试  
-**版本：** 1.0.0  
-**最后更新：** 2025-10-30
+**状态：** ✅ 所有平台完成并测试
+**版本：** 2.0.0
+**最后更新：** 2025-11-01
 
 Made with ❤️ for bypassing firewalls

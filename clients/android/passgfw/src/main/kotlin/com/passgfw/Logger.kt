@@ -9,9 +9,7 @@ enum class LogLevel(val value: Int) {
     DEBUG(0),
     INFO(1),
     WARNING(2),
-    ERROR(3);
-    
-    operator fun compareTo(other: LogLevel): Int = value.compareTo(other.value)
+    ERROR(3)
 }
 
 /**

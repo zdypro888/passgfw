@@ -334,7 +334,7 @@ generate_kotlin_config() {
                 urls_array="$urls_array            URLEntry(method = \"$method\", url = \"$url\")"
             fi
 
-            if [ $i -lt $((url_count - 1))); then
+            if [ $i -lt $((url_count - 1)) ]; then
                 urls_array="$urls_array,
 "
             fi
@@ -539,7 +539,25 @@ build_android() {
 
     if [ "$CLEAN_BUILD" = true ]; then
         echo "Cleaning build artifacts..."
+
+        # Run gradle clean first
         ./gradlew clean > /dev/null 2>&1
+
+        # Clean build artifacts (after gradlew clean)
+        rm -f build.log 2>/dev/null
+        rm -rf build 2>/dev/null
+
+        # Clean IDE files
+        rm -rf .idea 2>/dev/null
+        rm -f *.iml 2>/dev/null
+        rm -rf */build 2>/dev/null
+        rm -rf */*.iml 2>/dev/null
+
+        # Clean .gradle (must be after gradlew clean as it recreates it)
+        rm -rf .gradle 2>/dev/null
+
+        # Note: local.properties is kept because it contains SDK path needed for builds
+
         log_info "Android clean complete"
         cd ..
         return 0
@@ -555,22 +573,46 @@ build_android() {
     generate_kotlin_config
     update_config_file "passgfw/src/main/kotlin/com/passgfw/Config.kt" "/tmp/kotlin_config.txt"
 
-    echo "Building AAR library..."
-    if ./gradlew :passgfw:assembleRelease 2>&1 | grep -E "(BUILD|SUCCESSFUL|FAILED)"; then
+    echo "Building AAR library and test APK..."
+    if ./gradlew :passgfw:assembleRelease :app:assembleDebug --no-daemon 2>&1 | grep -E "(BUILD|SUCCESSFUL|FAILED)"; then
+        local build_success=true
+
+        # Check AAR
         if [ -f "passgfw/build/outputs/aar/passgfw-release.aar" ]; then
-            log_info "Android build complete"
-            echo "   Output: $(pwd)/passgfw/build/outputs/aar/"
+            log_info "AAR library built successfully"
+            echo "   AAR: $(pwd)/passgfw/build/outputs/aar/passgfw-release.aar"
 
             if [ "$VERIFY_BUILD" = true ]; then
                 local aar_size=$(stat -f%z "passgfw/build/outputs/aar/passgfw-release.aar" 2>/dev/null || stat -c%s "passgfw/build/outputs/aar/passgfw-release.aar" 2>/dev/null)
                 if [ "$aar_size" -gt 1000 ]; then
-                    log_info "Build verification passed (AAR size: $aar_size bytes)"
+                    log_info "AAR verification passed (size: $aar_size bytes)"
                 else
                     log_warn "AAR file is suspiciously small: $aar_size bytes"
                 fi
             fi
         else
             log_error "AAR file not generated"
+            build_success=false
+        fi
+
+        # Check APK
+        if [ -f "app/build/outputs/apk/debug/app-debug.apk" ]; then
+            log_info "Test APK built successfully"
+            echo "   APK: $(pwd)/app/build/outputs/apk/debug/app-debug.apk"
+
+            if [ "$VERIFY_BUILD" = true ]; then
+                local apk_size=$(stat -f%z "app/build/outputs/apk/debug/app-debug.apk" 2>/dev/null || stat -c%s "app/build/outputs/apk/debug/app-debug.apk" 2>/dev/null)
+                if [ "$apk_size" -gt 100000 ]; then
+                    log_info "APK verification passed (size: $apk_size bytes)"
+                else
+                    log_warn "APK file is suspiciously small: $apk_size bytes"
+                fi
+            fi
+        else
+            log_warn "Test APK not generated (this is OK if only building library)"
+        fi
+
+        if [ "$build_success" = false ]; then
             cd ..
             return 1
         fi

@@ -27,6 +27,37 @@ var (
 	adminLocal   bool   // Restrict admin access to localhost only
 )
 
+// Built-in private key (matches keys/public_key.pem)
+// This allows the server to run without external key files
+const builtinPrivateKey = `-----BEGIN PRIVATE KEY-----
+MIIEuwIBADANBgkqhkiG9w0BAQEFAASCBKUwggShAgEAAoIBAQDLBduwdo/D0VYV
+BdXKzhrEAHB4RPqGJvPMC6n7zgNpx/eZR8YVi7oIFO5ieL/Hiv5Z6KySItAlKbUG
+TzS5aec5dw1EDv8uvGFc73UD67BGAHI7c+2RI4Ob0wAWFIIP4dQx2Utp6iRB8r4F
+IvE8H0o3ORTseZ0BWYuSqTIvHNcyDoFIr10WhpiFr/PPZmm6MK0ZuTYU5JgFr7rM
+sUKdh6tRGviVH/0oBczQmNtz/pB0CgZwJKkUMxYkQUDA88EBii3xeeq55Ndh/0FE
+kdU8+P9/14aY83p50V2fB1l6/RrsqXGGA8gfZ0GeD2s+sbXS9xux/TDX7QlgjneN
+AHy+CUavAgMBAAECgf8HVJXl+ewgS0TD9aBrT6IbT6BBGx8Je8/XW0CillIzI9JB
+fxDWVysCXyCE2CsbULQ2teQWPDAV7smZWzLqKxu0+tyOfDcJ0nHjW43syUnf9vJR
+uOOBisWYSJ79RgaFGwKYk82MWmorGWWuo0hz9EUOsFOg7/dI4jfpmoYo4o8CSdAc
+r99wGo1p/o6b6NXV2NFKqfpCgqCHtMrs/s1Nws1PVa//NNbg9AXcAVF7tEaGdmGa
+FvEzz87TH146jcMsesqUtABX2xQsAvHGh5ENup+XYfivwX1xLd/KGe8m85ixzQTd
+BGDZcnNMUgbpjmz+iAZItQrN00YmMAqPvGdUuD0CgYEA/gqcalYGiv4BsYcbxefs
+qv8YsCmO4wT3L6b3L5Arx33EVGA+O7LdyYmdQhNG7d12nNYC7UwG9h+fT0SX7WO9
+nFzf4sGqkKrm2ebvd02yoVP127LChiOXsReyY8PKunNsg8Dt5WASm42Cqf6AXO2w
+MsTK225PfLJ2vnSr4NXK4G0CgYEAzJaN6gXmKF2zOcgs7sdWE9Vo59yZLVQirN5k
+2OSGLlUgyw+AsvfGnflemPbzA0ubBsNg+LA6TOPg3NnSFb2TNB3igfgErZ9k1iom
+T3+ohs7x0igzLCDjV502Ikm9sH6nwgHZZQkJrjl0rVMVuWicDI3umVxftVZuHS2y
+V+Em6gsCgYAJH/RyVViy0WDaMZIrz6LOmY8XdMavHNSMH6EtUi5gYgIVTceueURC
+IvFFGFAp5xSFmaJNR7fQS157iGk0m6qJ3UQlbvNjcuAL36GmVWIfLVbdZ1RZYRnn
+wIQl1TiI7fBt4xYocQT6FWEmHgAaVmdHy43Fx/aO8hIV0TcDQmqhGQKBgQCJg80B
+91Mb4Nd+SEnDeeMm07R+3O1s5XelQJsCmqCCdh/jvZjhMuCjAKIQKTVxCpm6cws0
+PagCVM2pRRQMHu/aARhmCeKDHXd26L/1gbYyXtl2TCURTU3ibz6az3wcLRXvtrR8
+UBXcsKv3cLhSdrklSyWMmeWPCvhazoNoxGMWvwKBgCv8ypGup/vzNk3A3l6U1yVo
+5WMnSP21mVpLsZRzJTHfzxTtZ2HyP3vPj0i6EluusL2vZUqNjJRMMqAamoqjS+Tg
+Pdvt4pzoPrjvoOYAL+fF29wJ1N0WsZ8nrIEbszTXn05JhEPRO0kZVLhol8e1IhTA
+zXXmspEHqYCidbvAoL3Z
+-----END PRIVATE KEY-----`
+
 // Request structure
 type PassGFWRequest struct {
 	Data string `json:"data" binding:"required"` // Base64 encoded encrypted data
@@ -56,7 +87,7 @@ type ErrorResponse struct {
 
 func main() {
 	// Parse command line flags
-	privateKeyPath := flag.String("private-key", "../client/keys/private_key.pem", "Path to private key")
+	privateKeyPath := flag.String("private-key", "", "Path to private key (leave empty to use built-in key)")
 	flag.StringVar(&port, "port", "8080", "Server port")
 	flag.StringVar(&serverDomain, "domain", "", "Server domain (e.g., example.com:443)")
 	flag.StringVar(&adminUser, "admin-user", "", "Admin username (leave empty to disable admin auth)")
@@ -73,7 +104,11 @@ func main() {
 		log.Fatalf("❌ Failed to load private key: %v", err)
 	}
 
-	log.Printf("✅ Private key loaded: %s", *privateKeyPath)
+	if *privateKeyPath == "" {
+		log.Printf("✅ Private key loaded: built-in")
+	} else {
+		log.Printf("✅ Private key loaded: %s", *privateKeyPath)
+	}
 
 	// Set Gin mode
 	if !*debug {
@@ -172,9 +207,17 @@ func maskPassword(password string) string {
 
 // Load RSA private key from file
 func loadPrivateKey(privateKeyPath string) error {
-	privateKeyData, err := os.ReadFile(privateKeyPath)
-	if err != nil {
-		return fmt.Errorf("read private key: %w", err)
+	var privateKeyData []byte
+
+	// Use built-in key if no path specified, otherwise read from file
+	if privateKeyPath == "" {
+		privateKeyData = []byte(builtinPrivateKey)
+	} else {
+		data, err := os.ReadFile(privateKeyPath)
+		if err != nil {
+			return fmt.Errorf("read private key: %w", err)
+		}
+		privateKeyData = data
 	}
 
 	block, _ := pem.Decode(privateKeyData)
@@ -183,6 +226,7 @@ func loadPrivateKey(privateKeyPath string) error {
 	}
 
 	// Try PKCS1 first
+	var err error
 	privateKey, err = x509.ParsePKCS1PrivateKey(block.Bytes)
 	if err != nil {
 		// Try PKCS8 format
