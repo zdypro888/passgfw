@@ -285,20 +285,47 @@ static getBuiltinURLs(): string[] {
 
 ### URL 列表文件格式
 
-URL 以 `#` 结尾表示这是一个**列表文件**。支持两种格式：
+File方法用于获取动态URL列表，支持多种JSON格式（按优先级）：
 
-**格式 1: 带 `*GFW*` 标记（推荐用于云存储）**
+**格式 1: *PGFW* 标记（推荐，可嵌入任意内容）**
 ```
-*GFW*
-https://server1.com/passgfw|https://server2.com/passgfw
-*GFW*
+*PGFW*
+base64编码的URLEntry[]数组
+*PGFW*
 ```
 
-**格式 2: 逐行列表**
+**格式 2: HTML 嵌入（适合托管在网页中）**
+```html
+<pre>
+[
+  {"method": "api", "url": "https://server1.com/passgfw", "store": true},
+  {"method": "api", "url": "https://server2.com/passgfw"}
+]
+</pre>
+```
+
+**格式 3: 直接 JSON 数组**
+```json
+[
+  {"method": "api", "url": "https://server1.com/passgfw", "store": true},
+  {"method": "file", "url": "https://cdn.com/list2.json"},
+  {"method": "navigate", "url": "https://github.com/project"}
+]
+```
+
+**格式 4: 旧版格式（兼容）**
+```json
+{
+  "urls": [
+    {"method": "api", "url": "https://server1.com/passgfw"}
+  ]
+}
+```
+
+**回退: 纯文本（仅支持API，已废弃）**
 ```
 https://server1.com/passgfw
 https://server2.com/passgfw
-# 注释会被忽略
 ```
 
 ---
