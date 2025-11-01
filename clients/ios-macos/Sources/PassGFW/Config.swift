@@ -66,36 +66,47 @@ struct Config {
         -----END PUBLIC KEY-----
         """
     }
-    // BUILD_CONFIG_END
-    
+
     // MARK: - Timeout Settings
-    
+
     /// HTTP request timeout (seconds)
-    static let requestTimeout: TimeInterval = 10
-    
+    static let requestTimeout: TimeInterval = 5
+
     /// Retry interval when all URLs fail (seconds)
     static let retryInterval: TimeInterval = 2
-    
-    /// Interval between URL checks (milliseconds)
+
+    /// Interval between URL checks (seconds)
     static let urlInterval: TimeInterval = 0.5
-    
+
     // MARK: - Retry Settings
-    
+
     /// Maximum number of retries per URL
-    static let maxRetries = 3
-    
-    /// Delay between retries (milliseconds)
-    static let retryDelay: TimeInterval = 1.0
-    
+    static let maxRetries = 2
+
+    /// Delay between retries (seconds)
+    static let retryDelay: TimeInterval = 0.5
+
     // MARK: - Security Limits
-    
+
     /// Maximum nested list# depth
     static let maxListRecursionDepth = 5
-    
+
     /// Random nonce size in bytes
     static let nonceSize = 32
-    
+
     /// Maximum client_data length (RSA 2048 limit ~245 bytes for payload)
     static let maxClientDataSize = 200
+
+    // MARK: - Concurrent Check Settings
+
+    /// Enable concurrent URL checking
+    static let enableConcurrentCheck = true
+
+    /// Number of URLs to check concurrently (batch size)
+    static let concurrentCheckCount = 3
+
+    /// Allow concurrent checking for File method (false recommended to avoid recursion explosion)
+    static let fileMethodConcurrent = false
+    // BUILD_CONFIG_END
 }
 

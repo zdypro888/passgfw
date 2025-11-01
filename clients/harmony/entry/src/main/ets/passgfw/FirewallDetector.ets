@@ -1,8 +1,9 @@
 import { NetworkClient } from './NetworkClient';
 import { CryptoHelper } from './CryptoHelper';
-import { Config } from './Config';
+import { Config, URLEntry } from './Config';
 import { Logger } from './Logger';
-import { URLStorageManager, URLEntry } from './URLStorageManager';
+import { URLManager } from './URLManager';
+import { PreferencesStorage } from './SecureStorage';
 import { util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
 
@@ -10,9 +11,9 @@ import { common } from '@kit.AbilityKit';
  * Firewall Detector - Core detection logic
  */
 export class FirewallDetector {
-  private urlList: URLEntry[];
   private networkClient: NetworkClient;
   private cryptoHelper: CryptoHelper;
+  private urlManager: URLManager | null = null;
   private lastError: string | null = null;
   private initialized: boolean = false;
   private context: common.UIAbilityContext | null = null;
@@ -21,7 +22,6 @@ export class FirewallDetector {
   private openedNavigateURLs: Set<string> = new Set();
 
   constructor() {
-    this.urlList = [];
     this.networkClient = new NetworkClient();
     this.cryptoHelper = new CryptoHelper();
 
@@ -41,24 +41,14 @@ export class FirewallDetector {
     // 保存 context
     this.context = context;
 
-    // 加载内置 URL
-    const builtinURLs = Config.getBuiltinURLs();
+    // Initialize URLManager with secure storage
+    const storage = new PreferencesStorage(context);
+    this.urlManager = new URLManager(storage);
 
-    // 尝试加载存储的 URL
-    try {
-      const storedURLs = await URLStorageManager.getInstance().loadStoredURLs();
-      if (storedURLs.length > 0) {
-        Logger.getInstance().info(`加载了 ${storedURLs.length} 个存储的 URL`);
-        this.urlList = [...builtinURLs, ...storedURLs];
-      } else {
-        this.urlList = builtinURLs;
-      }
-    } catch (error) {
-      Logger.getInstance().warning(`加载存储的 URL 失败，使用内置 URL: ${error.message}`);
-      this.urlList = builtinURLs;
-    }
+    // Initialize URL list (first time will use builtin URLs)
+    await this.urlManager.initializeIfNeeded();
 
-    Logger.getInstance().debug(`总共加载了 ${this.urlList.length} 个 URL (内置: ${builtinURLs.length}, 存储: ${this.urlList.length - builtinURLs.length})`);
+    Logger.getInstance().info(`FirewallDetector initialized`);
 
     this.initialized = true;
   }
@@ -67,27 +57,20 @@ export class FirewallDetector {
    * Get final server domain (main entry point)
    */
   async getFinalServer(customData?: string): Promise<string | null> {
-    // 确保已初始化
-    await this.initialize();
-
     Logger.getInstance().debug(`getFinalServer() called with customData: ${customData || 'null'}`);
-    Logger.getInstance().debug(`URL list size: ${this.urlList.length}`);
 
     // Loop infinitely until finding an available server
     while (true) {
-      Logger.getInstance().debug('Starting URL iteration...');
+      // Reload sorted URLs at the beginning of each cycle to get latest priorities
+      const urls = this.urlManager ? await this.urlManager.getSortedURLs() : [];
+      Logger.getInstance().debug(`Starting URL iteration with ${urls.length} sorted URLs`);
 
-      for (const entry of this.urlList) {
-        Logger.getInstance().debug(`Checking URL: ${entry.url} (method: ${entry.method})`);
+      const domain = Config.ENABLE_CONCURRENT_CHECK
+        ? await this.checkURLsConcurrently(urls, customData, Config.CONCURRENT_CHECK_COUNT)
+        : await this.checkURLsSequentially(urls, customData);
 
-        const domain = await this.checkURLEntry(entry, customData, 0);
-        if (domain) {
-          Logger.getInstance().info(`Found available server: ${domain}`);
-          return domain;
-        }
-
-        // Wait between URL checks
-        await this.sleep(Config.URL_INTERVAL);
+      if (domain) {
+        return domain;
       }
 
       // All URLs failed, wait and retry
@@ -99,16 +82,37 @@ export class FirewallDetector {
 
   /**
    * Set URL list
+   * @deprecated Use addURL instead for better control
+   * URLs will be persisted to storage
    */
   setURLList(entries: URLEntry[]): void {
-    this.urlList = entries;
+    // 批量添加 URL 到存储（异步操作）
+    if (this.urlManager) {
+      entries.forEach(entry => {
+        this.urlManager?.addURL(entry).then((success) => {
+          if (success) {
+            Logger.getInstance().info(`成功添加 URL 到存储: ${entry.url}`);
+          }
+        });
+      });
+    }
   }
 
   /**
-   * Add URL to list
+   * Add URL to persistent storage
+   * URL will be persisted and available in next detection
    */
   addURL(method: string, url: string): void {
-    this.urlList.push({ method, url });
+    const entry: URLEntry = { method, url, store: false };
+    if (this.urlManager) {
+      this.urlManager.addURL(entry).then((success) => {
+        if (success) {
+          Logger.getInstance().info(`成功添加 URL 到存储: ${url}`);
+        } else {
+          Logger.getInstance().error(`添加 URL 失败: ${url}`);
+        }
+      });
+    }
   }
 
   /**
@@ -121,30 +125,162 @@ export class FirewallDetector {
   // MARK: - Private Methods
 
   /**
+   * 串行检测 URLs（原逻辑）
+   */
+  private async checkURLsSequentially(
+    entries: URLEntry[],
+    customData: string | undefined,
+    recursionDepth: number = 0
+  ): Promise<string | null> {
+    for (const entry of entries) {
+      Logger.getInstance().debug(`Checking URL: ${entry.url} (method: ${entry.method}, depth: ${recursionDepth})`);
+
+      const domain = await this.checkURLEntry(entry, customData, recursionDepth);
+      if (domain) {
+        Logger.getInstance().info(`Found available server: ${domain}`);
+        // 异步记录成功
+        if (this.urlManager) {
+          this.urlManager.recordSuccess(entry.url);
+        }
+        return domain;
+      }
+
+      // 异步记录失败
+      if (this.urlManager) {
+        this.urlManager.recordFailure(entry.url);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 并发检测 URLs（批次间串行，批次内并发）
+   *
+   * 重要：navigate、remove 等特殊方法始终串行执行
+   * 如果配置禁止 file 方法并发，file 也会串行执行
+   */
+  private async checkURLsConcurrently(
+    entries: URLEntry[],
+    customData: string | undefined,
+    batchSize: number,
+    recursionDepth: number = 0
+  ): Promise<string | null> {
+    // 边界检查：batchSize 必须 >= 1
+    const safeBatchSize = Math.max(1, batchSize);
+    if (batchSize <= 0) {
+      Logger.getInstance().warning(`并发批次大小无效 (${batchSize})，已自动调整为 1`);
+    }
+
+    // 分离特殊方法和普通方法
+    const specialMethods = new Set(['navigate', 'remove']);
+    if (!Config.FILE_METHOD_CONCURRENT) {
+      specialMethods.add('file');
+    }
+
+    const specialEntries = entries.filter(e => specialMethods.has(e.method.toLowerCase()));
+    const normalEntries = entries.filter(e => !specialMethods.has(e.method.toLowerCase()));
+
+    // 1. 先串行处理特殊方法
+    if (specialEntries.length > 0) {
+      Logger.getInstance().debug(`串行处理 ${specialEntries.length} 个特殊方法 URL（深度: ${recursionDepth}）`);
+      for (const entry of specialEntries) {
+        Logger.getInstance().debug(`串行检测: ${entry.url} (method: ${entry.method}, depth: ${recursionDepth})`);
+
+        const domain = await this.checkURLEntry(entry, customData, recursionDepth);
+        if (domain) {
+          Logger.getInstance().info(`Found available server: ${domain} (from ${entry.url})`);
+          // 异步记录成功
+          if (this.urlManager) {
+            this.urlManager.recordSuccess(entry.url);
+          }
+          return domain;
+        } else {
+          // 异步记录失败
+          if (this.urlManager) {
+            this.urlManager.recordFailure(entry.url);
+          }
+        }
+      }
+    }
+
+    // 2. 再并发处理普通方法
+    if (normalEntries.length === 0) {
+      return null;
+    }
+
+    Logger.getInstance().debug(`并发处理 ${normalEntries.length} 个普通方法 URL（批次大小: ${safeBatchSize}）`);
+
+    // 按批次处理
+    for (let batchStart = 0; batchStart < normalEntries.length; batchStart += safeBatchSize) {
+      const batchEnd = Math.min(batchStart + safeBatchSize, normalEntries.length);
+      const batch = normalEntries.slice(batchStart, batchEnd);
+
+      Logger.getInstance().debug(`并发检测批次: [${batchStart}..${batchEnd - 1}], 共 ${batch.length} 个 URL（深度: ${recursionDepth}）`);
+
+      // 批次内并发检测（使用 Promise.all 等待所有结果）
+      const promises = batch.map(entry =>
+        this.checkURLEntry(entry, customData, recursionDepth)
+          .then(domain => ({ entry, domain }))
+      );
+
+      // 等待所有结果（完整统计）
+      const results = await Promise.all(promises);
+
+      // 查找第一个成功
+      let successDomain: string | null = null;
+      const successIndex = results.findIndex(r => r.domain !== null);
+
+      if (successIndex >= 0) {
+        successDomain = results[successIndex].domain;
+        Logger.getInstance().info(`Found available server: ${successDomain} (from ${results[successIndex].entry.url})`);
+      }
+
+      // 统计所有结果（包括成功后的其他结果）
+      for (const result of results) {
+        if (this.urlManager) {
+          if (result.domain) {
+            this.urlManager.recordSuccess(result.entry.url);
+            Logger.getInstance().debug(`统计：${result.entry.url} 成功`);
+          } else {
+            this.urlManager.recordFailure(result.entry.url);
+            Logger.getInstance().debug(`统计：${result.entry.url} 失败`);
+          }
+        }
+      }
+
+      // 如果找到成功，立即返回
+      if (successDomain) {
+        return successDomain;
+      }
+
+      // 批次全部失败，立即尝试下一批次
+    }
+
+    return null;
+  }
+
+  /**
    * 检查单个 URL Entry
    */
   private async checkURLEntry(entry: URLEntry, customData: string | undefined, recursionDepth: number): Promise<string | null> {
     this.lastError = null;
 
-    // Check recursion depth limit
-    if (recursionDepth > Config.MAX_LIST_RECURSION_DEPTH) {
+    // Check recursion depth limit（深度从0开始，允许 0 到 MAX_DEPTH-1）
+    if (recursionDepth >= Config.MAX_LIST_RECURSION_DEPTH) {
       this.lastError = `Maximum list recursion depth exceeded: ${entry.url}`;
-      Logger.getInstance().error(`Recursion depth limit reached (${recursionDepth}) for URL: ${entry.url}`);
+      Logger.getInstance().error(`Recursion depth limit reached (${recursionDepth} >= ${Config.MAX_LIST_RECURSION_DEPTH}) for URL: ${entry.url}`);
       return null;
     }
 
     // Handle "remove" method - 从存储中删除 URL
     if (entry.method.toLowerCase() === 'remove') {
       Logger.getInstance().info(`删除本地存储中的 URL: ${entry.url}`);
-      try {
-        const manager = URLStorageManager.getInstance();
-        if (await manager.removeURL(entry.url)) {
+      if (this.urlManager) {
+        if (await this.urlManager.removeURL(entry.url)) {
           Logger.getInstance().info(`成功删除 URL: ${entry.url}`);
         } else {
           Logger.getInstance().warning(`删除失败（URL 可能不存在）: ${entry.url}`);
         }
-      } catch (error) {
-        Logger.getInstance().error(`URLStorageManager not available: ${error.message}`);
       }
       // 不检查此 URL，直接跳过
       return null;
@@ -205,16 +341,18 @@ export class FirewallDetector {
       const storedEntry: URLEntry = { method: entry.method, url: entry.url };
 
       // 后台异步存储，不阻塞返回（不等待 Promise）
-      URLStorageManager.getInstance().addURL(storedEntry).then((success) => {
-        if (success) {
-          Logger.getInstance().info(`后台存储成功: ${entry.url} (method: ${entry.method})`);
-        } else {
-          Logger.getInstance().error(`后台存储失败: ${entry.url}`);
-        }
-      }).catch((error) => {
-        Logger.getInstance().error(`存储出错: ${error.message}`);
-      });
-      Logger.getInstance().info(`启动后台存储检测成功的 URL: ${entry.url} (method: ${entry.method})`);
+      if (this.urlManager) {
+        this.urlManager.addURL(storedEntry).then((success) => {
+          if (success) {
+            Logger.getInstance().info(`后台存储成功: ${entry.url} (method: ${entry.method})`);
+          } else {
+            Logger.getInstance().error(`后台存储失败: ${entry.url}`);
+          }
+        }).catch((error) => {
+          Logger.getInstance().error(`存储出错: ${error}`);
+        });
+        Logger.getInstance().info(`启动后台存储检测成功的 URL: ${entry.url} (method: ${entry.method})`);
+      }
     }
 
     return result;
@@ -278,21 +416,27 @@ export class FirewallDetector {
     // Try to parse as JSON first (new format with urls array)
     const subEntries = this.parseURLEntriesJSON(response.body);
     if (subEntries && subEntries.length > 0) {
-      Logger.getInstance().debug(`Fetched ${subEntries.length} URL entries from JSON sub-list, checking each one...`);
-
-      // Check each URL entry in sub-list
-      for (const subEntry of subEntries) {
-        Logger.getInstance().debug(`Checking sub-list entry: ${subEntry.url} (method: ${subEntry.method})`);
-
-        const domain = await this.checkURLEntry(subEntry, customData, recursionDepth + 1);
-        if (domain) {
-          Logger.getInstance().info(`Sub-list entry succeeded: ${subEntry.url} -> ${domain}`);
-          return domain;
+      // ✅ 去重：使用 URL 作为唯一标识
+      const uniqueEntries: URLEntry[] = [];
+      const seenURLs = new Set<string>();
+      for (const entry of subEntries) {
+        if (!seenURLs.has(entry.url)) {
+          seenURLs.add(entry.url);
+          uniqueEntries.push(entry);
         }
-
-        Logger.getInstance().debug(`Sub-list entry failed: ${subEntry.url}, trying next...`);
-        await this.sleep(Config.URL_INTERVAL);
       }
+
+      const duplicateCount = subEntries.length - uniqueEntries.length;
+      if (duplicateCount > 0) {
+        Logger.getInstance().warning(`去重：从 file 子列表中移除了 ${duplicateCount} 个重复 URL`);
+      }
+
+      Logger.getInstance().debug(`Fetched ${uniqueEntries.length} unique URL entries from JSON sub-list`);
+
+      // ✅ 递归调用并发检测逻辑（保持一致性）
+      return Config.ENABLE_CONCURRENT_CHECK
+        ? await this.checkURLsConcurrently(uniqueEntries, customData, Config.CONCURRENT_CHECK_COUNT, recursionDepth + 1)
+        : await this.checkURLsSequentially(uniqueEntries, customData, recursionDepth + 1);
     } else {
       // Fallback: parse as plain text URL list (legacy format)
       const subURLs = this.parseURLList(response.body);
@@ -301,22 +445,23 @@ export class FirewallDetector {
         return null;
       }
 
-      Logger.getInstance().debug(`Fetched ${subURLs.length} URLs from text sub-list, checking each one...`);
+      // ✅ 去重：移除重复的 URL
+      const uniqueURLs = Array.from(new Set(subURLs));
+      const duplicateCount = subURLs.length - uniqueURLs.length;
 
-      // Check each URL in sub-list (assume API method)
-      for (const subURL of subURLs) {
-        Logger.getInstance().debug(`Checking sub-list URL: ${subURL}`);
-        const subEntry: URLEntry = { method: 'api', url: subURL };
-
-        const domain = await this.checkURLEntry(subEntry, customData, recursionDepth + 1);
-        if (domain) {
-          Logger.getInstance().info(`Sub-list URL succeeded: ${subURL} -> ${domain}`);
-          return domain;
-        }
-
-        Logger.getInstance().debug(`Sub-list URL failed: ${subURL}, trying next...`);
-        await this.sleep(Config.URL_INTERVAL);
+      if (duplicateCount > 0) {
+        Logger.getInstance().warning(`去重：从 file 子列表中移除了 ${duplicateCount} 个重复 URL (legacy format)`);
       }
+
+      Logger.getInstance().debug(`Fetched ${uniqueURLs.length} unique URLs from text sub-list (legacy format)`);
+
+      // Convert to URLEntry list (assume API method)
+      const entries: URLEntry[] = uniqueURLs.map(u => ({ method: 'api', url: u }));
+
+      // ✅ 递归调用并发检测逻辑
+      return Config.ENABLE_CONCURRENT_CHECK
+        ? await this.checkURLsConcurrently(entries, customData, Config.CONCURRENT_CHECK_COUNT, recursionDepth + 1)
+        : await this.checkURLsSequentially(entries, customData, recursionDepth + 1);
     }
 
     // All URLs in sub-list failed
@@ -642,17 +787,17 @@ export class FirewallDetector {
         // 策略：如果有 domain，说明服务器可信，异步存储 store=true 的 URL（不阻塞返回）
         if (returnedDomain) {
           for (const entry of urlEntries) {
-            if (entry.store === true) {
+            if (entry.store === true && this.urlManager) {
               const storedEntry: URLEntry = { method: entry.method, url: entry.url };
               // 后台异步存储，不阻塞返回（不等待 Promise）
-              URLStorageManager.getInstance().addURL(storedEntry).then((success) => {
+              this.urlManager.addURL(storedEntry).then((success) => {
                 if (success) {
                   Logger.getInstance().info(`后台存储成功: ${entry.url}`);
                 } else {
                   Logger.getInstance().error(`后台存储失败: ${entry.url}`);
                 }
               }).catch((error) => {
-                Logger.getInstance().error(`存储出错: ${error.message}`);
+                Logger.getInstance().error(`存储出错: ${error}`);
               });
               Logger.getInstance().info(`启动后台存储服务器推荐的 URL: ${entry.url} (method: ${entry.method})`);
             }
@@ -669,15 +814,15 @@ export class FirewallDetector {
               Logger.getInstance().info(`Server-provided URL succeeded: ${entry.url} -> ${domain}`);
 
               // 检测成功，异步存储（不阻塞返回）
-              if (entry.store === true) {
+              if (entry.store === true && this.urlManager) {
                 const storedEntry: URLEntry = { method: entry.method, url: entry.url };
                 // 不等待存储完成，立即返回
-                URLStorageManager.getInstance().addURL(storedEntry).then((success) => {
+                this.urlManager.addURL(storedEntry).then((success) => {
                   if (success) {
                     Logger.getInstance().info(`后台存储成功: ${entry.url}`);
                   }
                 }).catch((error) => {
-                  Logger.getInstance().error(`存储出错: ${error.message}`);
+                  Logger.getInstance().error(`存储出错: ${error}`);
                 });
                 Logger.getInstance().info(`启动后台存储检测成功的 URL: ${entry.url}`);
               }

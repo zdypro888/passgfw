@@ -20,8 +20,15 @@ public class PassGFWClient {
     
     /// Set the URL list to check
     /// - Parameter entries: Array of URL entries to check
+    ///
+    /// 注意：此方法已废弃，建议使用 addURL 方法逐个添加
+    /// URLs 将被持久化到存储中
+    @available(*, deprecated, message: "Use addURL instead for better control")
     public func setURLList(_ entries: [URLEntry]) {
-        detector.setURLList(entries)
+        // 批量添加 URL 到存储（异步操作）
+        for entry in entries {
+            detector.addURL(method: entry.method, url: entry.url)
+        }
     }
     
     /// Add a URL entry to the check list

@@ -42,20 +42,25 @@ rwIDAQAB
 -----END PUBLIC KEY-----
         """.trimIndent()
     }
-    // BUILD_CONFIG_END
-    
+
     // Timeout settings
-    const val REQUEST_TIMEOUT = 10_000L  // milliseconds
-    const val RETRY_INTERVAL = 2_000L
+    const val REQUEST_TIMEOUT = 5000L  // milliseconds
+    const val RETRY_INTERVAL = 2000L
     const val URL_INTERVAL = 500L
-    
+
     // Retry settings
-    const val MAX_RETRIES = 3
-    const val RETRY_DELAY = 1_000L
-    
+    const val MAX_RETRIES = 2
+    const val RETRY_DELAY = 500L  // milliseconds
+
     // Security limits
     const val MAX_LIST_RECURSION_DEPTH = 5
     const val NONCE_SIZE = 32
     const val MAX_CLIENT_DATA_SIZE = 200
+
+    // Concurrent check settings
+    const val ENABLE_CONCURRENT_CHECK = true    // 是否启用并发检测
+    const val CONCURRENT_CHECK_COUNT = 3        // 同时检测的 URL 数量（批次大小）
+    const val FILE_METHOD_CONCURRENT = false    // File 类型是否允许并发（建议false避免递归爆炸）
+    // BUILD_CONFIG_END
 }
 

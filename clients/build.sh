@@ -228,6 +228,52 @@ fi
 echo "   URLs: $(echo "$URLS" | parse_json "$URLS" 'length') entries"
 echo "   Key:  $PUBLIC_KEY_PATH"
 
+# Load config parameters (with defaults if not specified)
+if [ -f "$CONFIG_FILE" ]; then
+    CONFIG_JSON=$(cat "$CONFIG_FILE")
+
+    if command -v jq &> /dev/null; then
+        CFG_REQUEST_TIMEOUT=$(echo "$CONFIG_JSON" | jq -r '.config.request_timeout // 5')
+        CFG_MAX_RETRIES=$(echo "$CONFIG_JSON" | jq -r '.config.max_retries // 2')
+        CFG_RETRY_DELAY=$(echo "$CONFIG_JSON" | jq -r '.config.retry_delay // 0.5')
+        CFG_RETRY_INTERVAL=$(echo "$CONFIG_JSON" | jq -r '.config.retry_interval // 2')
+        CFG_URL_INTERVAL=$(echo "$CONFIG_JSON" | jq -r '.config.url_interval // 0.5')
+        CFG_MAX_LIST_RECURSION=$(echo "$CONFIG_JSON" | jq -r '.config.max_list_recursion_depth // 5')
+        CFG_NONCE_SIZE=$(echo "$CONFIG_JSON" | jq -r '.config.nonce_size // 32')
+        CFG_MAX_CLIENT_DATA=$(echo "$CONFIG_JSON" | jq -r '.config.max_client_data_size // 200')
+        CFG_ENABLE_CONCURRENT=$(echo "$CONFIG_JSON" | jq -r '.config.enable_concurrent_check // true')
+        CFG_CONCURRENT_COUNT=$(echo "$CONFIG_JSON" | jq -r '.config.concurrent_check_count // 3')
+        CFG_FILE_CONCURRENT=$(echo "$CONFIG_JSON" | jq -r '.config.file_method_concurrent // false')
+    else
+        CFG_REQUEST_TIMEOUT=$(echo "$CONFIG_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('config', {}).get('request_timeout', 5))")
+        CFG_MAX_RETRIES=$(echo "$CONFIG_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('config', {}).get('max_retries', 2))")
+        CFG_RETRY_DELAY=$(echo "$CONFIG_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('config', {}).get('retry_delay', 0.5))")
+        CFG_RETRY_INTERVAL=$(echo "$CONFIG_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('config', {}).get('retry_interval', 2))")
+        CFG_URL_INTERVAL=$(echo "$CONFIG_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('config', {}).get('url_interval', 0.5))")
+        CFG_MAX_LIST_RECURSION=$(echo "$CONFIG_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('config', {}).get('max_list_recursion_depth', 5))")
+        CFG_NONCE_SIZE=$(echo "$CONFIG_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('config', {}).get('nonce_size', 32))")
+        CFG_MAX_CLIENT_DATA=$(echo "$CONFIG_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('config', {}).get('max_client_data_size', 200))")
+        CFG_ENABLE_CONCURRENT=$(echo "$CONFIG_JSON" | python3 -c "import json,sys; print(str(json.load(sys.stdin).get('config', {}).get('enable_concurrent_check', True)).lower())")
+        CFG_CONCURRENT_COUNT=$(echo "$CONFIG_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('config', {}).get('concurrent_check_count', 3))")
+        CFG_FILE_CONCURRENT=$(echo "$CONFIG_JSON" | python3 -c "import json,sys; print(str(json.load(sys.stdin).get('config', {}).get('file_method_concurrent', False)).lower())")
+    fi
+else
+    # Default config values
+    CFG_REQUEST_TIMEOUT=5
+    CFG_MAX_RETRIES=2
+    CFG_RETRY_DELAY=0.5
+    CFG_RETRY_INTERVAL=2
+    CFG_URL_INTERVAL=0.5
+    CFG_MAX_LIST_RECURSION=5
+    CFG_NONCE_SIZE=32
+    CFG_MAX_CLIENT_DATA=200
+    CFG_ENABLE_CONCURRENT=true
+    CFG_CONCURRENT_COUNT=3
+    CFG_FILE_CONCURRENT=false
+fi
+
+echo "   Config: timeout=${CFG_REQUEST_TIMEOUT}s, retries=${CFG_MAX_RETRIES}, delay=${CFG_RETRY_DELAY}s"
+
 # ============================================================================
 # Load Public Key
 # ============================================================================
@@ -314,6 +360,47 @@ $urls_array
 $indented_key
         """
     }
+
+    // MARK: - Timeout Settings
+
+    /// HTTP request timeout (seconds)
+    static let requestTimeout: TimeInterval = $CFG_REQUEST_TIMEOUT
+
+    /// Retry interval when all URLs fail (seconds)
+    static let retryInterval: TimeInterval = $CFG_RETRY_INTERVAL
+
+    /// Interval between URL checks (seconds)
+    static let urlInterval: TimeInterval = $CFG_URL_INTERVAL
+
+    // MARK: - Retry Settings
+
+    /// Maximum number of retries per URL
+    static let maxRetries = $CFG_MAX_RETRIES
+
+    /// Delay between retries (seconds)
+    static let retryDelay: TimeInterval = $CFG_RETRY_DELAY
+
+    // MARK: - Security Limits
+
+    /// Maximum nested list# depth
+    static let maxListRecursionDepth = $CFG_MAX_LIST_RECURSION
+
+    /// Random nonce size in bytes
+    static let nonceSize = $CFG_NONCE_SIZE
+
+    /// Maximum client_data length (RSA 2048 limit ~245 bytes for payload)
+    static let maxClientDataSize = $CFG_MAX_CLIENT_DATA
+
+    // MARK: - Concurrent Check Settings
+
+    /// Enable concurrent URL checking
+    static let enableConcurrentCheck = $CFG_ENABLE_CONCURRENT
+
+    /// Number of URLs to check concurrently (batch size)
+    static let concurrentCheckCount = $CFG_CONCURRENT_COUNT
+
+    /// Allow concurrent checking for File method (false recommended to avoid recursion explosion)
+    static let fileMethodConcurrent = $CFG_FILE_CONCURRENT
     // BUILD_CONFIG_END
 EOF
 }
@@ -359,6 +446,12 @@ generate_kotlin_config() {
         done
     fi
 
+    # Convert float to long for Kotlin (e.g., 0.5 -> 500 milliseconds)
+    local kotlin_retry_delay=$( echo "$CFG_RETRY_DELAY * 1000" | bc | cut -d'.' -f1 )
+    local kotlin_request_timeout=$( echo "$CFG_REQUEST_TIMEOUT * 1000" | bc | cut -d'.' -f1 )
+    local kotlin_retry_interval=$( echo "$CFG_RETRY_INTERVAL * 1000" | bc | cut -d'.' -f1 )
+    local kotlin_url_interval=$( echo "$CFG_URL_INTERVAL * 1000" | bc | cut -d'.' -f1 )
+
     cat > /tmp/kotlin_config.txt << EOF
     // BUILD_CONFIG_START - Auto-generated by build script v$VERSION, DO NOT EDIT MANUALLY
     /**
@@ -380,6 +473,25 @@ $urls_array
 $PUBLIC_KEY
         """.trimIndent()
     }
+
+    // Timeout settings
+    const val REQUEST_TIMEOUT = ${kotlin_request_timeout}L  // milliseconds
+    const val RETRY_INTERVAL = ${kotlin_retry_interval}L
+    const val URL_INTERVAL = ${kotlin_url_interval}L
+
+    // Retry settings
+    const val MAX_RETRIES = $CFG_MAX_RETRIES
+    const val RETRY_DELAY = ${kotlin_retry_delay}L  // milliseconds
+
+    // Security limits
+    const val MAX_LIST_RECURSION_DEPTH = $CFG_MAX_LIST_RECURSION
+    const val NONCE_SIZE = $CFG_NONCE_SIZE
+    const val MAX_CLIENT_DATA_SIZE = $CFG_MAX_CLIENT_DATA
+
+    // Concurrent check settings
+    const val ENABLE_CONCURRENT_CHECK = $CFG_ENABLE_CONCURRENT    // 是否启用并发检测
+    const val CONCURRENT_CHECK_COUNT = $CFG_CONCURRENT_COUNT        // 同时检测的 URL 数量（批次大小）
+    const val FILE_METHOD_CONCURRENT = $CFG_FILE_CONCURRENT    // File 类型是否允许并发（建议false避免递归爆炸）
     // BUILD_CONFIG_END
 EOF
 }
@@ -425,6 +537,12 @@ generate_arkts_config() {
         done
     fi
 
+    # Convert float to milliseconds for ArkTS (e.g., 0.5 -> 500)
+    local arkts_retry_delay=$( echo "$CFG_RETRY_DELAY * 1000" | bc | cut -d'.' -f1 )
+    local arkts_request_timeout=$( echo "$CFG_REQUEST_TIMEOUT * 1000" | bc | cut -d'.' -f1 )
+    local arkts_retry_interval=$( echo "$CFG_RETRY_INTERVAL * 1000" | bc | cut -d'.' -f1 )
+    local arkts_url_interval=$( echo "$CFG_URL_INTERVAL * 1000" | bc | cut -d'.' -f1 )
+
     cat > /tmp/arkts_config.txt << EOF
   // BUILD_CONFIG_START - Auto-generated by build script v$VERSION, DO NOT EDIT MANUALLY
   /**
@@ -444,6 +562,25 @@ $urls_array
   static getPublicKey(): string {
     return \`$PUBLIC_KEY\`;
   }
+
+  // Timeout settings (milliseconds)
+  static readonly REQUEST_TIMEOUT: number = $arkts_request_timeout;
+  static readonly RETRY_INTERVAL: number = $arkts_retry_interval;
+  static readonly URL_INTERVAL: number = $arkts_url_interval;
+
+  // Retry settings
+  static readonly MAX_RETRIES: number = $CFG_MAX_RETRIES;
+  static readonly RETRY_DELAY: number = $arkts_retry_delay;
+
+  // Security limits
+  static readonly MAX_LIST_RECURSION_DEPTH: number = $CFG_MAX_LIST_RECURSION;
+  static readonly NONCE_SIZE: number = $CFG_NONCE_SIZE;
+  static readonly MAX_CLIENT_DATA_SIZE: number = $CFG_MAX_CLIENT_DATA;
+
+  // Concurrent check settings
+  static readonly ENABLE_CONCURRENT_CHECK: boolean = $CFG_ENABLE_CONCURRENT;
+  static readonly CONCURRENT_CHECK_COUNT: number = $CFG_CONCURRENT_COUNT;
+  static readonly FILE_METHOD_CONCURRENT: boolean = $CFG_FILE_CONCURRENT;
   // BUILD_CONFIG_END
 EOF
 }

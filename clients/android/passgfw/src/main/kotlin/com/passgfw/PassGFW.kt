@@ -24,9 +24,16 @@ class PassGFW(context: Context) {
     /**
      * Set the URL list to check
      * @param entries List of URL entries to check
+     *
+     * 注意：此方法已废弃，建议使用 addURL 方法逐个添加
+     * URLs 将被持久化到存储中
      */
+    @Deprecated("Use addURL instead for better control", ReplaceWith("entries.forEach { addURL(it.method, it.url) }"))
     fun setURLList(entries: List<URLEntry>) {
-        detector.setURLList(entries)
+        // 批量添加 URL 到存储（异步操作）
+        entries.forEach { entry ->
+            detector.addURL(entry.method, entry.url)
+        }
     }
     
     /**
