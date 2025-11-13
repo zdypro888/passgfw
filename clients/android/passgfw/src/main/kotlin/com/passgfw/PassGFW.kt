@@ -11,40 +11,17 @@ import kotlinx.coroutines.withContext
  */
 class PassGFW(context: Context) {
     private val detector = FirewallDetector(context)
-    
+
     /**
-     * Get the final available server domain
+     * Get server domains by checking URL list
+     * @param retry If true, force re-detection even if cache exists. If false, return cache if available.
      * @param customData Optional custom data to send with requests
-     * @return The final server domain, or null if all attempts fail
+     * @return Map containing server response data, or null if all attempts fail
      */
-    suspend fun getFinalServer(customData: String? = null): String? = withContext(Dispatchers.IO) {
-        detector.getFinalServer(customData)
+    suspend fun getDomains(retry: Boolean = false, customData: String? = null): Map<String, Any>? = withContext(Dispatchers.IO) {
+        detector.getDomains(retry, customData)
     }
-    
-    /**
-     * Set the URL list to check
-     * @param entries List of URL entries to check
-     *
-     * 注意：此方法已废弃，建议使用 addURL 方法逐个添加
-     * URLs 将被持久化到存储中
-     */
-    @Deprecated("Use addURL instead for better control", ReplaceWith("entries.forEach { addURL(it.method, it.url) }"))
-    fun setURLList(entries: List<URLEntry>) {
-        // 批量添加 URL 到存储（异步操作）
-        entries.forEach { entry ->
-            detector.addURL(entry.method, entry.url)
-        }
-    }
-    
-    /**
-     * Add a URL entry to the check list
-     * @param method Method type ("api" or "file")
-     * @param url URL to add
-     */
-    fun addURL(method: String, url: String) {
-        detector.addURL(method, url)
-    }
-    
+
     /**
      * Get the last error message
      * @return Last error message, or null if no error
@@ -52,7 +29,7 @@ class PassGFW(context: Context) {
     fun getLastError(): String? {
         return detector.getLastError()
     }
-    
+
     /**
      * Enable or disable logging
      * @param enabled Whether to enable logging
@@ -60,7 +37,7 @@ class PassGFW(context: Context) {
     fun setLoggingEnabled(enabled: Boolean) {
         Logger.isEnabled = enabled
     }
-    
+
     /**
      * Set the minimum log level
      * @param level Minimum log level to display

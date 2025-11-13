@@ -53,17 +53,17 @@ class CryptoHelper {
         return Data(bytes)
     }
     
-    /// Encrypt data with public key (RSA-PKCS1)
+    /// Encrypt data with public key (RSA-OAEP with SHA-256)
     func encrypt(data: Data) -> Data? {
         guard let publicKey = publicKey else {
             Logger.shared.error("Public key not set")
             return nil
         }
-        
+
         var error: Unmanaged<CFError>?
         guard let encryptedData = SecKeyCreateEncryptedData(
             publicKey,
-            .rsaEncryptionPKCS1,
+            .rsaEncryptionOAEPSHA256,
             data as CFData,
             &error
         ) as Data? else {
@@ -72,30 +72,30 @@ class CryptoHelper {
             }
             return nil
         }
-        
+
         return encryptedData
     }
-    
-    /// Verify signature (RSA-SHA256)
+
+    /// Verify signature (RSA-PSS with SHA-256)
     func verifySignature(data: Data, signature: Data) -> Bool {
         guard let publicKey = publicKey else {
             Logger.shared.error("Public key not set")
             return false
         }
-        
+
         var error: Unmanaged<CFError>?
         let result = SecKeyVerifySignature(
             publicKey,
-            .rsaSignatureMessagePKCS1v15SHA256,
+            .rsaSignatureMessagePSSSHA256,
             data as CFData,
             signature as CFData,
             &error
         )
-        
+
         if let error = error {
             Logger.shared.error("Signature verification error: \(error.takeRetainedValue())")
         }
-        
+
         return result
     }
 }

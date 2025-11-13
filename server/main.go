@@ -58,427 +58,260 @@ Pdvt4pzoPrjvoOYAL+fF29wJ1N0WsZ8nrIEbszTXn05JhEPRO0kZVLhol8e1IhTA
 zXXmspEHqYCidbvAoL3Z
 -----END PRIVATE KEY-----`
 
-// Request structure
-type PassGFWRequest struct {
-	Data string `json:"data" binding:"required"` // Base64 encoded encrypted data
-}
-
-// URL Entry structure
 type URLEntry struct {
-	Method string `json:"method"`          // "api", "file", or "remove"
-	URL    string `json:"url"`             // URL string
-	Store  bool   `json:"store,omitempty"` // Optional: whether to persist locally (only valid for api and file)
+	Method string `json:"method"`
+	URL    string `json:"url"`
+	Store  bool   `json:"store,omitempty"`
 }
 
-// Response structure
-// Signature is calculated on the JSON of this struct WITHOUT the signature field
-// IMPORTANT: domain must not use omitempty to ensure consistent JSON structure for signature verification
+type ClientPayload struct {
+	Nonce string `json:"nonce"`
+	OS    string `json:"os"`
+	App   string `json:"app"`
+	Data  string `json:"data"`
+}
+
 type PassGFWResponse struct {
-	Random    string     `json:"random"`         // Echoed nonce from client
-	Domain    string     `json:"domain"`         // Server domain (for API response) - MUST be present
-	URLs      []URLEntry `json:"urls,omitempty"` // URL list (for file response)
-	Signature string     `json:"signature"`      // Base64 encoded RSA-SHA256 signature
+	Nonce     []byte     `json:"nonce"`
+	Data      []byte     `json:"data"`
+	URLs      []URLEntry `json:"urls,omitempty"`
+	Signature []byte     `json:"signature"`
 }
 
-// Error response structure
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
 func main() {
-	// Parse command line flags
-	privateKeyPath := flag.String("private-key", "", "Path to private key (leave empty to use built-in key)")
+	privateKeyPath := flag.String("private-key", "", "Path to private key")
 	flag.StringVar(&port, "port", "8080", "Server port")
-	flag.StringVar(&serverDomain, "domain", "", "Server domain (e.g., example.com:443)")
-	flag.StringVar(&adminUser, "admin-user", "", "Admin username (leave empty to disable admin auth)")
+	flag.StringVar(&serverDomain, "domain", "", "Server domain")
+	flag.StringVar(&adminUser, "admin-user", "", "Admin username")
 	flag.StringVar(&adminPass, "admin-pass", "", "Admin password")
-	flag.BoolVar(&adminLocal, "admin-local", false, "Restrict admin access to localhost only")
-	debug := flag.Bool("debug", false, "Enable debug mode")
+	flag.BoolVar(&adminLocal, "admin-local", false, "Localhost only")
+	debug := flag.Bool("debug", false, "Debug mode")
 	flag.Parse()
 
-	log.Println("🚀 PassGFW Server Starting...")
-	log.Println("==============================")
-
-	// Load private key
 	if err := loadPrivateKey(*privateKeyPath); err != nil {
-		log.Fatalf("❌ Failed to load private key: %v", err)
+		log.Fatalf("Failed to load key: %v", err)
 	}
 
-	if *privateKeyPath == "" {
-		log.Printf("✅ Private key loaded: built-in")
-	} else {
-		log.Printf("✅ Private key loaded: %s", *privateKeyPath)
-	}
-
-	// Set Gin mode
 	if !*debug {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	// Create Gin router
 	router := gin.Default()
-
-	// Setup routes
 	router.POST("/passgfw", handlePassGFW)
 	router.GET("/health", handleHealth)
-
-	// Admin routes (protected)
 	router.GET("/admin", adminAuth(), handleAdminPage)
 	router.POST("/api/generate-list", adminAuth(), handleGenerateList)
 	router.POST("/api/generate-keys", adminAuth(), handleGenerateKeys)
 
-	// Start server
-	addr := ":" + port
-	log.Printf("")
-	log.Printf("🌐 Server listening on %s", addr)
-	log.Printf("   Endpoints:")
-	log.Printf("   - POST http://localhost:%s/passgfw", port)
-	log.Printf("   - GET  http://localhost:%s/health", port)
-	log.Printf("   - GET  http://localhost:%s/admin (管理工具)", port)
-
-	// Admin security info
-	if adminUser != "" && adminPass != "" {
-		log.Printf("")
-		log.Printf("🔐 Admin authentication: ENABLED")
-		log.Printf("   Username: %s", adminUser)
-		log.Printf("   Password: %s", maskPassword(adminPass))
-	} else {
-		log.Printf("")
-		log.Printf("⚠️  Admin authentication: DISABLED (use -admin-user and -admin-pass to enable)")
-	}
-
-	if adminLocal {
-		log.Printf("🔒 Admin access: LOCALHOST ONLY")
-	} else {
-		log.Printf("⚠️  Admin access: ALL IPs (use -admin-local to restrict)")
-	}
-
-	log.Printf("")
-
-	if err := router.Run(addr); err != nil {
-		log.Fatalf("❌ Server error: %v", err)
-	}
+	log.Printf("Server: :%s | Domain: %s | Auth: %v", port, serverDomain, adminUser != "")
+	router.Run(":" + port)
 }
 
-// adminAuth middleware for protecting admin endpoints
 func adminAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Check localhost restriction
 		if adminLocal {
-			clientIP := c.ClientIP()
-			if clientIP != "127.0.0.1" && clientIP != "::1" && clientIP != "localhost" {
-				log.Printf("❌ Admin access denied: not from localhost (IP: %s)", clientIP)
-				c.JSON(http.StatusForbidden, ErrorResponse{
-					Error: "Admin access is restricted to localhost only",
-				})
+			ip := c.ClientIP()
+			if ip != "127.0.0.1" && ip != "::1" && ip != "localhost" {
+				c.JSON(http.StatusForbidden, ErrorResponse{Error: "Localhost only"})
 				c.Abort()
 				return
 			}
 		}
 
-		// Check HTTP Basic Auth
 		if adminUser != "" && adminPass != "" {
 			user, pass, hasAuth := c.Request.BasicAuth()
-
 			if !hasAuth || user != adminUser || pass != adminPass {
-				log.Printf("❌ Admin authentication failed: invalid credentials (IP: %s)", c.ClientIP())
-				c.Header("WWW-Authenticate", `Basic realm="PassGFW Admin"`)
-				c.JSON(http.StatusUnauthorized, ErrorResponse{
-					Error: "Authentication required",
-				})
+				c.Header("WWW-Authenticate", `Basic realm="PassGFW"`)
+				c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Auth required"})
 				c.Abort()
 				return
 			}
-
-			log.Printf("✅ Admin authenticated: %s (IP: %s)", user, c.ClientIP())
 		}
-
 		c.Next()
 	}
 }
 
-// maskPassword masks password for logging
-func maskPassword(password string) string {
-	if len(password) <= 2 {
-		return "***"
-	}
-	return password[:2] + "***"
-}
-
-// Load RSA private key from file
-func loadPrivateKey(privateKeyPath string) error {
-	var privateKeyData []byte
-
-	// Use built-in key if no path specified, otherwise read from file
-	if privateKeyPath == "" {
-		privateKeyData = []byte(builtinPrivateKey)
-	} else {
-		data, err := os.ReadFile(privateKeyPath)
+func loadPrivateKey(path string) error {
+	data := []byte(builtinPrivateKey)
+	if path != "" {
+		var err error
+		data, err = os.ReadFile(path)
 		if err != nil {
-			return fmt.Errorf("read private key: %w", err)
+			return err
 		}
-		privateKeyData = data
 	}
 
-	block, _ := pem.Decode(privateKeyData)
+	block, _ := pem.Decode(data)
 	if block == nil {
-		return fmt.Errorf("failed to decode private key PEM")
+		return fmt.Errorf("invalid PEM")
 	}
 
-	// Try PKCS1 first
-	var err error
-	privateKey, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
 	if err != nil {
-		// Try PKCS8 format
-		key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+		parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 		if err != nil {
-			return fmt.Errorf("parse private key (tried PKCS1 and PKCS8): %w", err)
+			return err
 		}
-		var ok bool
-		privateKey, ok = key.(*rsa.PrivateKey)
-		if !ok {
-			return fmt.Errorf("private key is not RSA")
-		}
+		key = parsed.(*rsa.PrivateKey)
 	}
 
+	privateKey = key
 	return nil
 }
 
 // Handle /passgfw endpoint
 func handlePassGFW(c *gin.Context) {
-	log.Printf("📥 Request from %s", c.ClientIP())
-
-	// Parse JSON request
-	var req PassGFWRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("❌ Invalid JSON: %v", err)
-		c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: "Invalid JSON or missing 'data' field",
-		})
+	// Read and decrypt request
+	encryptedData, err := c.GetRawData()
+	if err != nil || len(encryptedData) == 0 {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Invalid request body"})
 		return
 	}
 
-	// Decode Base64
-	encryptedData, err := base64.StdEncoding.DecodeString(req.Data)
+	decryptedData, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, privateKey, encryptedData, nil)
 	if err != nil {
-		log.Printf("❌ Invalid Base64: %v", err)
-		c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: "Invalid Base64 encoding",
-		})
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Decryption failed"})
 		return
 	}
 
-	// Decrypt with private key
-	decryptedData, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, encryptedData)
+	// Parse payload
+	var payload ClientPayload
+	if err := json.Unmarshal(decryptedData, &payload); err != nil || payload.Nonce == "" {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Invalid payload"})
+		return
+	}
+
+	// Build response data
+	domain := serverDomain
+	if domain == "" {
+		domain = c.Request.Host
+	}
+	responseData := buildResponseData(domain, payload.OS, payload.App, payload.Data)
+
+	// Decode nonce from base64
+	nonceBytes, err := base64.StdEncoding.DecodeString(payload.Nonce)
 	if err != nil {
-		log.Printf("❌ Decryption failed: %v", err)
-		c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: "Decryption failed",
-		})
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Invalid nonce"})
 		return
 	}
 
-	decryptedStr := string(decryptedData)
-	log.Printf("✅ Decrypted JSON: %s", decryptedStr)
-
-	// Parse decrypted JSON payload
-	var payload struct {
-		Nonce      string `json:"nonce"`
-		ClientData string `json:"client_data"`
-	}
-
-	if err := json.Unmarshal(decryptedData, &payload); err != nil {
-		log.Printf("❌ Failed to parse payload JSON: %v", err)
-		c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: "Invalid payload format",
-		})
-		return
-	}
-
-	log.Printf("   Random: %s", payload.Nonce)
-	if payload.ClientData != "" {
-		log.Printf("   Client data: %s", payload.ClientData)
-	}
-
-	// Determine real server domain based on client data
-	// Use configured domain or fallback to request host
-	configuredDomain := serverDomain
-	if configuredDomain == "" {
-		configuredDomain = c.Request.Host
-		log.Printf("   ⚠️  Using request Host (consider setting --domain flag)")
-	}
-	realDomain := getRealDomain(configuredDomain, payload.ClientData)
-	log.Printf("   Server domain: %s", realDomain)
-
-	// Construct response object (without signature first)
-	response := PassGFWResponse{
-		Random: payload.Nonce,
-		Domain: realDomain,
-	}
-
-	// CRITICAL: Validate that domain is not empty (otherwise omitempty causes mismatch)
-	if realDomain == "" {
-		log.Printf("❌ Domain cannot be empty")
-		c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: "Server configuration error: domain not set",
-		})
-		return
-	}
-
-	// CRITICAL: Create ordered map for consistent JSON serialization across platforms
-	// All platforms must use alphabetically sorted keys for signature verification
-	// Note: Go's map iteration order is random, but json.Marshal always outputs in sorted key order
-	payloadMap := map[string]interface{}{
-		"domain": realDomain,
-		"random": payload.Nonce,
-	}
-
-	// Marshal response (Go json.Marshal automatically sorts keys alphabetically)
-	responseJSON, err := json.Marshal(payloadMap)
+	// Marshal response data to JSON bytes
+	dataBytes, err := json.Marshal(responseData)
 	if err != nil {
-		log.Printf("❌ Failed to marshal response JSON: %v", err)
-		c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: "Failed to create response",
-		})
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to marshal data"})
 		return
 	}
 
-	log.Printf("   Payload for signing: %s", string(responseJSON))
+	// Build response for signing (without signature field)
+	responseForSigning := PassGFWResponse{
+		Nonce: nonceBytes,
+		Data:  dataBytes,
+		URLs:  nil, // Add URLs here if needed
+	}
 
-	// Sign the response JSON
-	hashed := sha256.Sum256(responseJSON)
-	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, hashed[:])
+	// Marshal the response to get signing bytes
+	signBytes, err := json.Marshal(responseForSigning)
 	if err != nil {
-		log.Printf("❌ Signing failed: %v", err)
-		c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: "Signing failed",
-		})
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to marshal for signing"})
 		return
 	}
 
-	signatureBase64 := base64.StdEncoding.EncodeToString(signature)
-
-	// Add signature to response
-	response.Signature = signatureBase64
-
-	c.JSON(http.StatusOK, response)
-	log.Printf("✅ Response sent with signature")
-}
-
-// Get real server domain based on configured domain and client data
-// You can customize this logic to route to different backends
-func getRealDomain(configuredDomain, clientData string) string {
-	// Route based on client data
-	// You can add custom logic here based on clientData
-	// For example:
-	// - Route to different CDN based on clientData
-	// - Return different domains for different clients
-	// - Implement load balancing logic
-
-	if clientData == "cdn" {
-		return "cdn.example.com:443"
+	// Sign the marshaled response
+	hashed := sha256.Sum256(signBytes)
+	signature, err := rsa.SignPSS(rand.Reader, privateKey, crypto.SHA256, hashed[:], nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Signing failed"})
+		return
 	}
 
-	if clientData == "mobile" {
-		return "mobile.example.com:443"
-	}
-
-	// Default: return configured domain
-	return configuredDomain
-}
-
-// Handle /health endpoint
-func handleHealth(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"status":  "ok",
-		"server":  "PassGFW Server",
-		"version": "1.0.1",
+	// Return response with signature
+	c.JSON(http.StatusOK, PassGFWResponse{
+		Nonce:     nonceBytes,
+		Data:      dataBytes,
+		URLs:      nil, // Add URLs here if needed
+		Signature: signature,
 	})
 }
 
-// Handle /admin - Admin management page
+// Build response data - customize based on OS/App/Data
+func buildResponseData(domain, os, app, clientData string) any {
+	data := map[string]any{
+		"domain":  domain,
+		"version": "2.2",
+	}
+
+	// Custom routing examples
+	switch clientData {
+	case "cdn":
+		data["domain"] = "cdn.example.com:443"
+	case "mobile":
+		data["domain"] = "mobile.example.com:443"
+	}
+
+	return data
+}
+
+func handleHealth(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
 func handleAdminPage(c *gin.Context) {
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.String(http.StatusOK, getAdminHTML())
 }
 
-// Handle /api/generate-list - Generate *PGFW* format URL list
 func handleGenerateList(c *gin.Context) {
 	var req struct {
 		URLs []URLEntry `json:"urls" binding:"required"`
 	}
-
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Invalid request: " + err.Error()})
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	// Convert to JSON
-	jsonData, err := json.Marshal(req.URLs)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to marshal JSON: " + err.Error()})
-		return
-	}
-
-	// Base64 encode
+	jsonData, _ := json.Marshal(req.URLs)
 	b64 := base64.StdEncoding.EncodeToString(jsonData)
-
-	// Add markers
-	pgfwFormat := fmt.Sprintf("*PGFW*%s*PGFW*", b64)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":     true,
 		"json":        string(jsonData),
 		"base64":      b64,
-		"pgfw_format": pgfwFormat,
+		"pgfw_format": fmt.Sprintf("*PGFW*%s*PGFW*", b64),
 	})
 }
 
-// Handle /api/generate-keys - Generate RSA key pair
 func handleGenerateKeys(c *gin.Context) {
 	var req struct {
 		KeySize int `json:"key_size"`
 	}
-
 	if err := c.ShouldBindJSON(&req); err != nil || req.KeySize == 0 {
-		req.KeySize = 2048 // Default
+		req.KeySize = 2048
 	}
-
-	// Validate key size
 	if req.KeySize < 1024 || req.KeySize > 8192 {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Key size must be between 1024 and 8192"})
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Invalid key size"})
 		return
 	}
 
-	log.Printf("🔑 Generating RSA key pair (size: %d bits)...", req.KeySize)
-
-	// Generate private key
 	privKey, err := rsa.GenerateKey(rand.Reader, req.KeySize)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to generate key: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	// Encode private key to PEM
-	privKeyBytes := x509.MarshalPKCS1PrivateKey(privKey)
 	privKeyPEM := pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PRIVATE KEY",
-		Bytes: privKeyBytes,
+		Bytes: x509.MarshalPKCS1PrivateKey(privKey),
 	})
 
-	// Encode public key to PEM
-	pubKeyBytes, err := x509.MarshalPKIXPublicKey(&privKey.PublicKey)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to marshal public key: " + err.Error()})
-		return
-	}
-
+	pubKeyBytes, _ := x509.MarshalPKIXPublicKey(&privKey.PublicKey)
 	pubKeyPEM := pem.EncodeToMemory(&pem.Block{
 		Type:  "PUBLIC KEY",
 		Bytes: pubKeyBytes,
 	})
-
-	log.Printf("✅ RSA key pair generated successfully")
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":     true,

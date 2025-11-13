@@ -2,7 +2,7 @@
  * URL Entry 接口 - 包含 method, URL 和 store 标志
  */
 export interface URLEntry {
-  method: string;  // "api", "file", 或 "remove"
+  method: string;  // "api", "file", "navigate", 或 "remove"
   url: string;
   store?: boolean; // 是否持久化存储（只对 api 和 file 有效，默认 false）
 }

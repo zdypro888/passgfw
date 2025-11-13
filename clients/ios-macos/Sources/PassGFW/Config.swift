@@ -2,7 +2,7 @@ import Foundation
 
 /// URL Entry with method, URL, and optional store flag
 public struct URLEntry: Codable {
-    public let method: String  // "api", "file", or "remove"
+    public let method: String  // "api", "file", "navigate", or "remove"
     public let url: String
     public let store: Bool     // 是否持久化存储（只对 api 和 file 有效，默认 false）
 

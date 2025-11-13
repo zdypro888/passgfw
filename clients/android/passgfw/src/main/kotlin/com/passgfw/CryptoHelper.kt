@@ -51,12 +51,12 @@ class CryptoHelper {
     }
     
     /**
-     * Encrypt data with public key (RSA-PKCS1)
+     * Encrypt data with public key (RSA-OAEP with SHA-256)
      */
     fun encrypt(data: ByteArray): ByteArray? {
         return try {
             val key = publicKey ?: throw IllegalStateException("Public key not set")
-            val cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding")
+            val cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding")
             cipher.init(Cipher.ENCRYPT_MODE, key)
             cipher.doFinal(data)
         } catch (e: Exception) {
@@ -64,14 +64,14 @@ class CryptoHelper {
             null
         }
     }
-    
+
     /**
-     * Verify signature (RSA-SHA256)
+     * Verify signature (RSA-PSS with SHA-256)
      */
     fun verifySignature(data: ByteArray, signature: ByteArray): Boolean {
         return try {
             val key = publicKey ?: throw IllegalStateException("Public key not set")
-            val sig = Signature.getInstance("SHA256withRSA")
+            val sig = Signature.getInstance("SHA256withRSA/PSS")
             sig.initVerify(key)
             sig.update(data)
             sig.verify(signature)

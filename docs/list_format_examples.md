@@ -121,8 +121,9 @@ http://server3.example.com:8080/passgfw
 
 ```typescript
 interface URLEntry {
-  method: "api" | "file" | "store" | "remove";  // 方法类型
-  url: string;                                   // URL 地址
+  method: "api" | "file" | "navigate" | "remove";  // 方法类型
+  url: string;                                      // URL 地址
+  store?: boolean;                                  // 是否持久化（可选，默认false）
 }
 ```
 
@@ -130,7 +131,7 @@ interface URLEntry {
 
 - **`api`**: API 接口，返回签名的服务器域名
   - 客户端发送加密的 nonce
-  - 服务器返回签名的响应：`{random, domain, signature}`
+  - 服务器返回签名的响应：`{nonce, data, signature}`
   - 需要 RSA 签名验证
 
 - **`file`**: 静态文件，包含更多 URL 列表
@@ -138,17 +139,29 @@ interface URLEntry {
   - 支持递归（有深度限制）
   - 不需要签名
 
-- **`store`**: ⭐ **永久存储URL到本地** ⭐
-  - 将此 URL 保存到本地配置文件
-  - 下次启动自动加载
-  - 存储后会作为 API URL 进行检测
-  - 用于动态添加新服务器而无需更新客户端
+- **`navigate`**: 打开浏览器
+  - 在默认浏览器中打开指定URL
+  - 用于引导用户访问帮助页面或更新说明
+  - 每个会话只打开一次（避免重复）
+  - 不参与服务器检测
 
 - **`remove`**: 🗑️ **从本地删除URL** 🗑️
-  - 从本地配置文件删除指定 URL
+  - 从本地加密存储删除指定 URL
   - 立即生效
   - 不会检测此 URL
   - 用于移除失效的服务器
+
+### Store 属性
+
+- **`store: true`**: ⭐ **持久化URL到本地** ⭐
+  - 检测成功后，保存到本地加密存储
+  - 下次启动自动加载
+  - 只对 `api` 和 `file` 方法有效
+  - 用于动态添加新服务器而无需更新客户端
+
+- **`store: false`** 或省略: 临时使用
+  - 本次检测使用，不保存
+  - 适用于临时应急服务器
 
 ---
 
@@ -257,24 +270,24 @@ PassGFW 客户端按以下顺序尝试解析：
 
 ---
 
-## 动态URL管理（store/remove）
+## 动态URL管理（store 属性 / remove 方法）
 
 PassGFW 支持动态添加和删除URL，无需重新安装客户端。
 
-### Store Method - 永久保存URL
+### 使用 Store 属性 - 永久保存URL
 
-当客户端遇到 `method: "store"` 的URL时，会将其保存到本地配置文件中，下次启动自动加载。
+当URL条目设置 `store: true` 属性时，客户端会在检测成功后将其保存到本地配置文件中，下次启动自动加载。
 
 #### 使用场景
 
 1. **动态添加新服务器**
-   - 在列表文件中添加 `{"method":"store","url":"https://new-server.com/passgfw"}`
-   - 客户端检测到后会永久保存
-   - 下次启动无需再次下载
+   - 在列表文件中添加 `{"method":"api","url":"https://new-server.com/passgfw","store":true}`
+   - 客户端检测成功后会永久保存
+   - 下次启动自动加载，无需再次下载
 
 2. **分发备用服务器**
-   - 主服务器返回的列表中包含 store URL
-   - 客户端自动收集并保存
+   - 主服务器返回的列表中包含 `store: true` 的URL
+   - 客户端检测成功后自动收集并保存
    - 增加可用服务器数量
 
 #### 示例
@@ -282,15 +295,15 @@ PassGFW 支持动态添加和删除URL，无需重新安装客户端。
 ```json
 [
   {"method":"api","url":"https://main-server.com/passgfw"},
-  {"method":"store","url":"https://backup1.com/passgfw"},
-  {"method":"store","url":"https://backup2.com/passgfw"}
+  {"method":"api","url":"https://backup1.com/passgfw","store":true},
+  {"method":"api","url":"https://backup2.com/passgfw","store":true}
 ]
 ```
 
 客户端处理：
-1. 检测 `main-server.com`
-2. 遇到 `backup1.com` 的 store，保存到本地并检测
-3. 遇到 `backup2.com` 的 store，保存到本地并检测
+1. 检测 `main-server.com`（临时使用，不保存）
+2. 检测 `backup1.com`，成功后保存到本地
+3. 检测 `backup2.com`，成功后保存到本地
 4. 下次启动时，自动加载 backup1 和 backup2
 
 ### Remove Method - 删除URL
@@ -306,21 +319,21 @@ PassGFW 支持动态添加和删除URL，无需重新安装客户端。
 
 2. **URL迁移**
    - 旧URL需要废弃
-   - 新URL使用 store 添加
-   - 旧URL使用 remove 删除
+   - 新URL设置 `store: true` 属性添加
+   - 旧URL使用 `method: "remove"` 删除
 
 #### 示例
 
 ```json
 [
   {"method":"remove","url":"https://old-server.com/passgfw"},
-  {"method":"store","url":"https://new-server.com/passgfw"}
+  {"method":"api","url":"https://new-server.com/passgfw","store":true}
 ]
 ```
 
 客户端处理：
 1. 遇到 `old-server.com` 的 remove，从本地删除（如果存在）
-2. 遇到 `new-server.com` 的 store，保存到本地并检测
+2. 检测 `new-server.com`，成功后保存到本地
 
 ### 本地存储位置
 
@@ -356,9 +369,9 @@ iOS/macOS 会自动初始化，无需额外代码。
 ```json
 [
   {"method":"remove","url":"https://old.com/passgfw"},
-  {"method":"store","url":"https://new.com/passgfw"},
-  {"method":"store","url":"https://backup1.com/passgfw"},
-  {"method":"store","url":"https://backup2.com/passgfw"}
+  {"method":"api","url":"https://new.com/passgfw","store":true},
+  {"method":"api","url":"https://backup1.com/passgfw","store":true},
+  {"method":"api","url":"https://backup2.com/passgfw","store":true}
 ]
 ```
 
@@ -367,7 +380,7 @@ iOS/macOS 会自动初始化，无需额外代码。
 使用管理工具（访问服务器的 `/admin` 页面）生成：
 
 ```
-*PGFW*W3sibWV0aG9kIjoicmVtb3ZlIiwidXJsIjoiaHR0cHM6Ly9vbGQuY29tL3Bhc3NnZncifSx7Im1ldGhvZCI6InN0b3JlIiwidXJsIjoiaHR0cHM6Ly9uZXcuY29tL3Bhc3NnZncifSx7Im1ldGhvZCI6InN0b3JlIiwidXJsIjoiaHR0cHM6Ly9iYWNrdXAxLmNvbS9wYXNzZ2Z3In0seyJtZXRob2QiOiJzdG9yZSIsInVybCI6Imh0dHBzOi8vYmFja3VwMi5jb20vcGFzc2dmdyJ9XQ==*PGFW*
+*PGFW*W3sibWV0aG9kIjoicmVtb3ZlIiwidXJsIjoiaHR0cHM6Ly9vbGQuY29tL3Bhc3NnZncifSx7Im1ldGhvZCI6ImFwaSIsInVybCI6Imh0dHBzOi8vbmV3LmNvbS9wYXNzZ2Z3Iiwic3RvcmUiOnRydWV9LHsibWV0aG9kIjoiYXBpIiwidXJsIjoiaHR0cHM6Ly9iYWNrdXAxLmNvbS9wYXNzZ2Z3Iiwic3RvcmUiOnRydWV9LHsibWV0aG9kIjoiYXBpIiwidXJsIjoiaHR0cHM6Ly9iYWNrdXAyLmNvbS9wYXNzZ2Z3Iiwic3RvcmUiOnRydWV9XQ==*PGFW*
 ```
 
 **3. 部署到可访问的位置：**
@@ -383,8 +396,8 @@ iOS/macOS 会自动初始化，无需额外代码。
 
 - 从 file URL 获取到这个列表
 - 删除 `old.com`（如果本地有存储）
-- 保存 `new.com`, `backup1.com`, `backup2.com` 到本地
-- 检测新服务器是否可用
+- 检测 `new.com`, `backup1.com`, `backup2.com` 是否可用
+- 检测成功的URL保存到本地（因为 `store: true`）
 - 下次启动时，使用：**内置URLs** + `new.com` + `backup1.com` + `backup2.com`
 
 ---

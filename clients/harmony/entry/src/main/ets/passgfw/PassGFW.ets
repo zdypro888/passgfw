@@ -6,7 +6,7 @@
 
 import { FirewallDetector } from './FirewallDetector';
 import { Logger, LogLevel } from './Logger';
-import { URLStorageManager, URLEntry } from './URLStorageManager';
+import { URLEntry } from './Config';
 import { common } from '@kit.AbilityKit';
 
 export class PassGFW {
@@ -26,10 +26,7 @@ export class PassGFW {
       return;
     }
 
-    // 初始化 URLStorageManager
-    await URLStorageManager.initialize(context);
-
-    // 初始化 FirewallDetector（传递 context 用于打开浏览器）
+    // 初始化 FirewallDetector（传递 context）
     await this.detector.initialize(context);
 
     this.initialized = true;
@@ -37,29 +34,13 @@ export class PassGFW {
   }
 
   /**
-   * Get the final available server domain
+   * Get server domains by checking URL list
+   * @param retry If true, force re-detection even if cache exists. If false, return cache if available.
    * @param customData Optional custom data to send with requests
-   * @returns The final server domain, or null if all attempts fail
+   * @returns ESObject containing server response data, or null if all attempts fail
    */
-  async getFinalServer(customData?: string): Promise<string | null> {
-    return await this.detector.getFinalServer(customData);
-  }
-
-  /**
-   * Set the URL list to check
-   * @param entries Array of URL entries to check
-   */
-  setURLList(entries: URLEntry[]): void {
-    this.detector.setURLList(entries);
-  }
-
-  /**
-   * Add a URL to the check list
-   * @param method Method type (e.g., "api", "file", "store", "remove")
-   * @param url URL to add
-   */
-  addURL(method: string, url: string): void {
-    this.detector.addURL(method, url);
+  async getDomains(retry: boolean = false, customData?: string): Promise<ESObject | null> {
+    return await this.detector.getDomains(retry, customData);
   }
 
   /**
@@ -89,5 +70,5 @@ export class PassGFW {
 
 // Export related types
 export { LogLevel } from './Logger';
-export { URLEntry } from './URLStorageManager';
+export { URLEntry } from './Config';
 

@@ -3,7 +3,7 @@
 /*
  * PassGFW macOS Example
  *
- * 一个演示 PassGFW 在 macOS 上使用的命令行工具示例
+ * 演示 PassGFW v2.2 在 macOS 上的使用
  *
  * 构建并运行:
  *   cd clients/ios-macos
@@ -14,22 +14,15 @@
  *   swift run
  *
  * 功能演示:
- *   - 基本的防火墙检测
+ *   - 基本的防火墙检测（使用内置URL列表）
  *   - 自定义数据发送
- *   - 日志级别控制
- *   - 错误处理
+ *   - 缓存机制（retry参数）
  */
 
 import Foundation
 #if canImport(PassGFW)
 import PassGFW
 #endif
-
-// ============================================================================
-// 配置
-// ============================================================================
-
-let CUSTOM_DATA = "macos-example-v2.0"
 
 // ============================================================================
 // 辅助函数
@@ -48,30 +41,33 @@ func printSection(_ title: String) {
 }
 
 // ============================================================================
-// 示例 1: 基本检测
+// 示例 1: 首次检测
 // ============================================================================
 
-func example1_BasicDetection() async {
-    printSection("示例 1: 基本防火墙检测")
+func example1_FirstDetection() async {
+    printSection("示例 1: 首次检测（无缓存）")
 
-    print("📝 说明: 使用默认配置进行防火墙检测")
+    print("📝 说明: 使用 retry=false 进行首次检测")
     print("")
 
     // 创建 PassGFW 实例
     let client = PassGFWClient()
 
-    // 启用 debug 日志
-    client.setLogLevel(.debug)
+    // 设置日志级别
+    client.setLogLevel(.info)
 
     print("🔍 开始检测...")
-    print("⚠️  注意: 这将阻塞直到找到可用服务器")
-    print("⚠️  确保服务器正在运行: cd server && go run main.go")
+    print("⚠️  确保服务器正在运行: cd server && go run main.go -port=8080")
     print("")
 
-    // 执行检测
-    if let domain = await client.getFinalServer(customData: CUSTOM_DATA) {
-        print("\n✅ 找到可用服务器: \(domain)")
-        print("   可以使用此域名进行后续通信\n")
+    // 执行首次检测（retry=false）
+    if let result = await client.getDomains(retry: false, customData: "macos-example") {
+        print("\n✅ 检测成功!")
+        print("📦 服务器返回数据:")
+        for (key, value) in result {
+            print("   - \(key): \(value)")
+        }
+        print("")
     } else {
         if let error = client.getLastError() {
             print("\n❌ 检测失败: \(error)\n")
@@ -82,124 +78,86 @@ func example1_BasicDetection() async {
 }
 
 // ============================================================================
-// 示例 2: 自定义 URL 列表
+// 示例 2: 使用缓存
 // ============================================================================
 
-func example2_CustomURLs() async {
-    printSection("示例 2: 使用自定义 URL 列表")
+func example2_CachedResult() async {
+    printSection("示例 2: 使用缓存（快速返回）")
 
-    print("📝 说明: 动态设置要检测的 URL 列表")
-    print("")
-
-    // 创建 PassGFW 实例
-    let client = PassGFWClient()
-    client.setLogLevel(.info)
-
-    // 自定义 URL 列表（支持多种 method）
-    let customURLs = [
-        URLEntry(method: "navigate", url: "https://github.com/zdypro888/passgfw"),
-        URLEntry(method: "api", url: "http://localhost:8080/passgfw"),
-        URLEntry(method: "api", url: "http://127.0.0.1:8080/passgfw"),
-        URLEntry(method: "file", url: "http://localhost:8080/list.txt", store: true)
-    ]
-
-    print("📋 设置自定义 URL 列表:")
-    for (index, entry) in customURLs.enumerated() {
-        let storeTag = entry.store ? " [持久化]" : ""
-        print("   \(index + 1). [\(entry.method)] \(entry.url)\(storeTag)")
-    }
-    print("")
-
-    client.setURLList(customURLs)
-
-    print("🔍 开始检测...")
-    if let domain = await client.getFinalServer(customData: "custom-urls-example") {
-        print("\n✅ 成功: \(domain)\n")
-    } else {
-        print("\n❌ 所有 URL 检测失败\n")
-    }
-}
-
-// ============================================================================
-// 示例 3: 错误处理
-// ============================================================================
-
-func example3_ErrorHandling() async {
-    printSection("示例 3: 错误处理演示")
-
-    print("📝 说明: 演示如何处理检测失败的情况")
-    print("")
-
-    let client = PassGFWClient()
-    client.setLogLevel(.error)  // 只显示错误日志
-
-    // 故意使用无效的 URL
-    let invalidURLs = [
-        URLEntry(method: "api", url: "http://invalid-domain-123456.com/passgfw"),
-        URLEntry(method: "api", url: "http://localhost:9999/passgfw")  // 假设此端口未监听
-    ]
-
-    client.setURLList(invalidURLs)
-
-    print("🔍 尝试连接无效服务器（会失败）...")
-    print("⏱  等待超时...\n")
-
-    // 注意: 这会循环重试，实际使用中应该设置超时
-    // 这里我们只等待几秒钟然后退出
-    let result: String? = await withCheckedContinuation { continuation in
-        Task {
-            // 在后台执行检测
-            let _ = await client.getFinalServer(customData: "error-example")
-            continuation.resume(returning: nil)
-        }
-
-        // 5秒后超时
-        Task {
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
-            continuation.resume(returning: "timeout")
-        }
-    }
-
-    if result == "timeout" {
-        print("⏱  检测超时（这是预期的，因为服务器不可用）")
-        if let error = client.getLastError() {
-            print("   最后错误: \(error)")
-        }
-    }
-    print("")
-}
-
-// ============================================================================
-// 示例 4: 动态添加 URL
-// ============================================================================
-
-func example4_DynamicURLs() async {
-    printSection("示例 4: 动态添加 URL")
-
-    print("📝 说明: 在运行时动态添加检测 URL")
+    print("📝 说明: 使用 retry=false 返回缓存结果")
     print("")
 
     let client = PassGFWClient()
     client.setLogLevel(.info)
 
-    // 从其他来源动态获取 URL
-    let dynamicURLs = [
-        "http://localhost:8080/passgfw",
-        "http://127.0.0.1:8080/passgfw"
-    ]
+    print("🔍 第一次检测（建立缓存）...")
+    let _ = await client.getDomains(retry: false)
 
-    print("➕ 动态添加 URL:")
-    for url in dynamicURLs {
-        client.addURL(method: "api", url: url)
-        print("   - \(url)")
+    print("\n🔍 第二次检测（使用缓存）...")
+    let start = Date()
+    if let result = await client.getDomains(retry: false) {
+        let duration = Date().timeIntervalSince(start)
+        print("\n✅ 立即返回缓存结果（耗时: \(String(format: "%.3f", duration))秒）")
+        print("📦 数据: \(result)")
+        print("")
     }
+}
+
+// ============================================================================
+// 示例 3: 强制刷新
+// ============================================================================
+
+func example3_ForceRefresh() async {
+    printSection("示例 3: 强制刷新（重新检测）")
+
+    print("📝 说明: 使用 retry=true 强制重新检测")
+    print("")
+
+    let client = PassGFWClient()
+    client.setLogLevel(.info)
+
+    print("🔍 第一次检测...")
+    let _ = await client.getDomains(retry: false)
+
+    print("\n🔄 强制刷新（retry=true）...")
+    if let result = await client.getDomains(retry: true) {
+        print("\n✅ 刷新成功，获取最新数据")
+        print("📦 数据: \(result)")
+        print("")
+    }
+}
+
+// ============================================================================
+// 示例 4: 自定义数据
+// ============================================================================
+
+func example4_CustomData() async {
+    printSection("示例 4: 发送自定义数据")
+
+    print("📝 说明: 使用 customData 参数发送自定义数据给服务器")
+    print("")
+
+    let client = PassGFWClient()
+    client.setLogLevel(.debug)
+
+    // 自定义数据（可以是任何字符串，通常是JSON）
+    let customData = """
+    {
+        "app_version": "2.2.0",
+        "platform": "macos",
+        "user_id": "example-user-123"
+    }
+    """
+
+    print("📤 发送自定义数据:")
+    print(customData)
     print("")
 
     print("🔍 开始检测...")
-    if let domain = await client.getFinalServer(customData: "dynamic-example") {
-        print("\n✅ 找到服务器: \(domain)\n")
-    } else {
-        print("\n❌ 检测失败\n")
+    if let result = await client.getDomains(retry: false, customData: customData) {
+        print("\n✅ 检测成功")
+        print("📦 服务器返回: \(result)")
+        print("")
     }
 }
 
@@ -207,13 +165,13 @@ func example4_DynamicURLs() async {
 // 主函数
 // ============================================================================
 
-printHeader("PassGFW macOS 示例程序 v2.0")
+printHeader("PassGFW macOS 示例程序 v2.2")
 
-print("本示例演示了 PassGFW 库的各种使用方式:")
-print("  1. 基本防火墙检测")
-print("  2. 自定义 URL 列表")
-print("  3. 错误处理")
-print("  4. 动态添加 URL")
+print("本示例演示了 PassGFW v2.2 的简化 API:")
+print("  1. 首次检测（无缓存）")
+print("  2. 使用缓存（快速返回）")
+print("  3. 强制刷新（重新检测）")
+print("  4. 发送自定义数据")
 print("")
 
 print("选择要运行的示例 (1-4), 或按 Enter 运行所有示例: ", terminator: "")
@@ -223,19 +181,19 @@ let choice = readLine() ?? ""
 Task {
     switch choice {
     case "1":
-        await example1_BasicDetection()
+        await example1_FirstDetection()
     case "2":
-        await example2_CustomURLs()
+        await example2_CachedResult()
     case "3":
-        await example3_ErrorHandling()
+        await example3_ForceRefresh()
     case "4":
-        await example4_DynamicURLs()
+        await example4_CustomData()
     default:
         // 运行所有示例
-        await example1_BasicDetection()
-        await example2_CustomURLs()
-        await example3_ErrorHandling()
-        await example4_DynamicURLs()
+        await example1_FirstDetection()
+        await example2_CachedResult()
+        await example3_ForceRefresh()
+        await example4_CustomData()
     }
 
     print("\n╔═══════════════════════════════════════════════════════════════╗")

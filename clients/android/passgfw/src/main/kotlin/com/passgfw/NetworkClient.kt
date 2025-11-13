@@ -25,11 +25,37 @@ class NetworkClient(private val timeout: Long = Config.REQUEST_TIMEOUT) {
         .readTimeout(timeout, TimeUnit.MILLISECONDS)
         .writeTimeout(timeout, TimeUnit.MILLISECONDS)
         .build()
-    
+
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-    
+    private val octetStreamMediaType = "application/octet-stream".toMediaType()
+
     /**
-     * POST request
+     * POST request with raw binary data
+     */
+    fun postBytes(url: String, body: ByteArray): HTTPResponse {
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .post(body.toRequestBody(octetStreamMediaType))
+                .addHeader("Content-Type", "application/octet-stream")
+                .addHeader("User-Agent", "PassGFW/2.2 Kotlin")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                HTTPResponse(
+                    success = response.isSuccessful,
+                    statusCode = response.code,
+                    body = response.body?.string() ?: "",
+                    error = if (response.isSuccessful) null else "HTTP ${response.code}"
+                )
+            }
+        } catch (e: Exception) {
+            HTTPResponse(false, 0, "", e.message)
+        }
+    }
+
+    /**
+     * POST request with JSON string
      */
     fun post(url: String, jsonBody: String): HTTPResponse {
         return try {
@@ -37,9 +63,9 @@ class NetworkClient(private val timeout: Long = Config.REQUEST_TIMEOUT) {
                 .url(url)
                 .post(jsonBody.toRequestBody(jsonMediaType))
                 .addHeader("Content-Type", "application/json")
-                .addHeader("User-Agent", "PassGFW/1.0 Kotlin")
+                .addHeader("User-Agent", "PassGFW/2.2 Kotlin")
                 .build()
-            
+
             client.newCall(request).execute().use { response ->
                 HTTPResponse(
                     success = response.isSuccessful,

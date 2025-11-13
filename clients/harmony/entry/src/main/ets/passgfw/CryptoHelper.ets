@@ -50,46 +50,46 @@ export class CryptoHelper {
   }
   
   /**
-   * Encrypt data with public key (RSA-PKCS1)
+   * Encrypt data with public key (RSA-OAEP with SHA-256)
    */
   async encrypt(data: Uint8Array): Promise<Uint8Array | null> {
     try {
       if (!this.publicKey) {
         throw new Error('Public key not set');
       }
-      
-      // Create cipher
-      const cipher = cryptoFramework.createCipher('RSA2048|PKCS1');
+
+      // Create cipher with OAEP padding and SHA-256
+      const cipher = cryptoFramework.createCipher('RSA2048|PKCS1_OAEP|SHA256|MGF1_SHA256');
       await cipher.init(cryptoFramework.CryptoMode.ENCRYPT_MODE, this.publicKey, null);
-      
+
       // Encrypt
       const dataBlob: cryptoFramework.DataBlob = { data: data };
       const encryptedData = await cipher.doFinal(dataBlob);
-      
+
       return encryptedData.data;
     } catch (error) {
       console.error('Encryption failed:', error);
       return null;
     }
   }
-  
+
   /**
-   * Verify signature (RSA-SHA256)
+   * Verify signature (RSA-PSS with SHA-256)
    */
   async verifySignature(data: Uint8Array, signature: Uint8Array): Promise<boolean> {
     try {
       if (!this.publicKey) {
         throw new Error('Public key not set');
       }
-      
-      // Create Verify instance
-      const verify = cryptoFramework.createVerify('RSA2048|PKCS1|SHA256');
+
+      // Create Verify instance with PSS padding
+      const verify = cryptoFramework.createVerify('RSA2048|PSS|SHA256|MGF1_SHA256');
       await verify.init(this.publicKey);
-      
+
       // Update data
       const dataBlob: cryptoFramework.DataBlob = { data: data };
       await verify.update(dataBlob);
-      
+
       // Verify signature
       const signatureBlob: cryptoFramework.DataBlob = { data: signature };
       return await verify.verify(dataBlob, signatureBlob);
